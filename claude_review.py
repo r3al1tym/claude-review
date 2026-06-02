@@ -262,6 +262,7 @@ C_RULE = "grey27"          # hairline section dividers above/below content
 C_FOOT = "grey37"          # footer keys + scroll position
 C_TAB_ON = "grey85 underline"   # active surface tab: brighter + underline, no color
 C_FROZEN = "cyan"          # the ONE color in the UI: marks the frozen toggle state
+C_BADGE = "grey50"         # the wordmark inset into the top rule — a quiet label
 
 
 class PreLines:
@@ -364,22 +365,17 @@ def render_screen(turn, surfaces, active, scroll, frozen=False, pending=False):
     while len(window) < body_h:                    # pad short content to fill
         window.append([Segment(" " * W)])
 
-    # --- top rule: the prompt being answered, inset into the rule -----------
-    # Replaces the old wordmark — orientation that actually matters (what this
-    # answer is for), positioned where it frames the content below it.
-    rule_top = inset_rule(W, gutter,
-                          left_text=(turn["question"] or "—").replace("\n", " "),
-                          left_style=C_QUESTION)
+    # --- top rule: the CLAUDE REVIEW wordmark, with a ▲ overflow cue ---------
+    # The wordmark is a calm constant (the prompt is often terse/typo-y, so it's
+    # noise up here). A ▲ on the right edge means content is hidden ABOVE.
+    rule_top = inset_rule(W, gutter, left_text="CLAUDE REVIEW", left_style=C_BADGE,
+                          right_text=("▲" if scroll > 0 else None))
 
-    # --- bottom rule: overflow cue at the exact line where content is cut ----
-    # ▼ + how far down you are, shown only when there's more below; a bare ▲
-    #   marker means there's hidden content above the top of the window.
+    # --- bottom rule: ▼ + how far down, shown only when more is below --------
     over_right = None
     if max_scroll > 0 and scroll < max_scroll:
         over_right = f"▼ {round(100 * scroll / max_scroll)}%"
-    over_left = "▲" if scroll > 0 else None
-    rule_bot = inset_rule(W, gutter, left_text=over_left, left_style=C_META,
-                          right_text=over_right)
+    rule_bot = inset_rule(W, gutter, right_text=over_right)
 
     # --- key row: status · session on the LEFT, cues + actions on the RIGHT --
     left = Text(no_wrap=True, style=C_META)
