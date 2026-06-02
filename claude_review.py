@@ -302,6 +302,34 @@ def build_surfaces(turn):
     return out
 
 
+def inset_rule(W, gutter, left_text=None, left_style=C_META, right_text=None):
+    """A hairline rule with optional text inset into it — left (offset from the
+    margin) and/or right. Used for the top rule (clipped prompt) and the bottom
+    rule (overflow cue), so labels sit exactly where the content edge is."""
+    seg = "─"
+    line = Text(no_wrap=True, overflow="crop")
+    line.append(" " * gutter + seg * 2, style=C_RULE)
+    used = gutter + 2
+    if left_text:
+        lt = f" {left_text} "
+        # clip the inset text so the rule never overflows the right inset/gutter
+        budget = W - used - gutter - 2 - (len(right_text) + 3 if right_text else 0)
+        if len(lt) > budget:
+            lt = lt[:max(1, budget - 1)] + "… "
+        line.append(lt, style=left_style)
+        used += len(lt)
+    # fill to the right inset (or the end), then the right label, then close
+    if right_text:
+        rt = f" {right_text} "
+        fill = max(0, W - used - len(rt) - gutter)
+        line.append(seg * fill, style=C_RULE)
+        line.append(rt, style=C_META)
+        line.append(seg * 2, style=C_RULE)
+    else:
+        line.append(seg * max(0, W - used - gutter), style=C_RULE)
+    return line
+
+
 def render_screen(turn, surfaces, active, scroll, frozen=False, pending=False):
     W, H = shutil.get_terminal_size()
     live = (time.time() - turn["mtime"]) < LIVE_WINDOW
@@ -325,7 +353,7 @@ def render_screen(turn, surfaces, active, scroll, frozen=False, pending=False):
     # bottom so the response owns the top of the screen.
 
     # --- body: content fills the screen down to the chrome ---------------
-    body_h = max(1, H - 4)                        # top rule, bottom rule, status, keys
+    body_h = max(1, H - 3)                         # top rule, bottom rule, key row
     label, renderable = surfaces[active]
     opts = console.options.update_width(W)
     # vertical air + a left gutter so content reads as its own column
@@ -333,51 +361,56 @@ def render_screen(turn, surfaces, active, scroll, frozen=False, pending=False):
     max_scroll = max(0, len(rendered) - body_h)
     scroll = max(0, min(scroll, max_scroll))
     window = rendered[scroll:scroll + body_h]
-    while len(window) < body_h:                   # pad short content to fill
+    while len(window) < body_h:                    # pad short content to fill
         window.append([Segment(" " * W)])
 
-    rule_top = Text(" " * gutter + "─" * (W - 2 * gutter), style=C_RULE)
-    rule_bot = Text(" " * gutter + "─" * (W - 2 * gutter), style=C_RULE)
+    # --- top rule: the prompt being answered, inset into the rule -----------
+    # Replaces the old wordmark — orientation that actually matters (what this
+    # answer is for), positioned where it frames the content below it.
+    rule_top = inset_rule(W, gutter,
+                          left_text=(turn["question"] or "—").replace("\n", " "),
+                          left_style=C_QUESTION)
 
-    # --- status line (STATE): status · id  .....  [new ↓] scroll% · surfaces -
-    status = Text(no_wrap=True, overflow="ellipsis", style=C_META)
-    status.append(" " * gutter)
+    # --- bottom rule: overflow cue at the exact line where content is cut ----
+    # ▼ + how far down you are, shown only when there's more below; a bare ▲
+    #   marker means there's hidden content above the top of the window.
+    over_right = None
+    if max_scroll > 0 and scroll < max_scroll:
+        over_right = f"▼ {round(100 * scroll / max_scroll)}%"
+    over_left = "▲" if scroll > 0 else None
+    rule_bot = inset_rule(W, gutter, left_text=over_left, left_style=C_META,
+                          right_text=over_right)
+
+    # --- key row: status · session on the LEFT, cues + actions on the RIGHT --
+    left = Text(no_wrap=True, style=C_META)
+    left.append(" " * gutter)
     # Pad the state word to a fixed width so the id beside it never shifts when
     # the state changes (working=7 is the longest of working/idle/frozen).
-    status.append(f"{dot} ", style=status_style)
-    status.append(f"{state:<7}", style=status_style)
-    status.append(f"  ·  {turn['id'][:8]}")
-    # right side: frozen "new content waiting" hint + scroll position + surfaces
-    rt = Text(no_wrap=True, style=C_META)
+    left.append(f"{dot} ", style=status_style)
+    left.append(f"{state:<7}", style=status_style)
+    left.append(f"  ·  {turn['id'][:8]}")
     if frozen and pending:                         # held view, newer content exists
-        rt.append("new ↓", style=C_FROZEN)
-    if max_scroll > 0:
-        if rt.plain:
-            rt.append("   ")
-        rt.append(f"↓ {round(100 * scroll / max_scroll)}%")
+        left.append("   ")
+        left.append("new ↓", style=C_FROZEN)
+
+    right = Text(no_wrap=True, style=C_FOOT)
     if len(surfaces) > 1:                          # ⇥ signals Tab cycles these
-        if rt.plain:
-            rt.append("    ")
-        rt.append("⇥ ")
+        right.append("⇥ ", style=C_META)
         for i, (lbl, _) in enumerate(surfaces):
-            rt.append(lbl, style=(C_TAB_ON if i == active else C_META))
-            if i < len(surfaces) - 1:
-                rt.append(" · ")
-    spad = max(1, W - len(status.plain) - len(rt.plain) - gutter)
-    status.append(" " * spad)
-    status.append_text(rt)
-    status.append(" " * gutter)
+            right.append(lbl, style=(C_TAB_ON if i == active else C_META))
+            right.append(" · " if i < len(surfaces) - 1 else "    ", style=C_META)
+    # action cues — uniformly muted (the colored "■ frozen" above is the state)
+    right.append("f unfreeze" if frozen else "f freeze")
+    right.append(" · ↑↓ scroll" + ("" if frozen else " · s switch") + " · q quit")
 
-    # --- key line (ACTIONS) ----------------------------------------------
-    # Uniformly muted — the keys are reference, not signal. The frozen STATE is
-    # already conveyed by the colored "■ frozen" word on the status line above,
-    # so the key label stays grey to keep the chrome calm.
-    keys = Text(no_wrap=True, overflow="ellipsis", style=C_FOOT)
-    keys.append(" " * gutter)
-    keys.append("f unfreeze" if frozen else "f freeze")
-    keys.append(" · ↑↓ scroll" + ("" if frozen else " · s switch") + " · q quit")
+    keyrow = Text(no_wrap=True, overflow="ellipsis", style=C_FOOT)
+    pad = max(1, W - len(left.plain) - len(right.plain) - gutter)
+    keyrow.append_text(left)
+    keyrow.append(" " * pad)
+    keyrow.append_text(right)
+    keyrow.append(" " * gutter)
 
-    return Group(rule_top, PreLines(window), rule_bot, status, keys), max_scroll
+    return Group(rule_top, PreLines(window), rule_bot, keyrow), max_scroll
 
 
 # ----------------------------------------------------------------------------- picker
