@@ -87,6 +87,20 @@ claude-review -p "$PWD/examples"   # from a clone of this repo
 | `r` | refresh now (also unfreezes) |
 | `q` | quit |
 
+### Claude Code skill (optional)
+
+This repo ships a [Claude Code](https://claude.com/claude-code) **skill** under
+[`skill/`](skill/) so you can just say *"open a review pane for this session"* and
+Claude resolves the right session id and hands you the command to paste in your
+other pane (it never launches the TUI itself — that would hang the turn). The
+skill self-installs `claude-review` if it's missing.
+
+To enable it, symlink it into your skills directory:
+
+```bash
+ln -s "$PWD/skill" ~/.claude/skills/review-pane
+```
+
 ### Project slug
 
 Claude Code stores transcripts under `~/.claude/projects/<slug>`, where `<slug>` is the project's absolute path with every `/` replaced by `-` (e.g. `/home/you/myrepo` → `-home-you-myrepo`). With no `-p`, `claude-review` derives the slug from your current directory. Use `-p` to review a project you're not currently `cd`'d into.
