@@ -670,7 +670,11 @@ def main(argv=None):
         print(f"unknown arg: {argv[i]}", file=sys.stderr); return 1
 
     proj = resolve_proj(slug)
-    if not os.path.isdir(proj):
+
+    def _has_sessions(p):
+        return os.path.isdir(p) and bool(glob.glob(os.path.join(p, "*.jsonl")))
+
+    def _no_project_msg():
         print(f"no project dir: {proj}", file=sys.stderr)
         if os.path.isdir(PROJ_ROOT):
             names = sorted(e.name for e in os.scandir(PROJ_ROOT) if e.is_dir())
@@ -686,7 +690,31 @@ def main(argv=None):
         else:
             print(f"(transcript root {PROJ_ROOT} doesn't exist — is Claude Code installed? "
                   "Set CLAUDE_CONFIG_DIR if your ~/.claude lives elsewhere.)", file=sys.stderr)
-        return 1
+
+    # Brand-new-session race: claude-review launched the instant Claude Code
+    # starts, before the first transcript is flushed — so the project dir may
+    # not exist (or be empty) for a beat. When the project was derived from cwd
+    # (no explicit -p) and we're at an interactive POSIX terminal, WAIT for a
+    # session to appear instead of erroring out. An explicit -p that's missing
+    # is treated as a typo and errors immediately with suggestions.
+    if not _has_sessions(proj):
+        can_wait = slug is None and not do_list and sys.stdin.isatty() and os.name == "posix"
+        if not can_wait:
+            if os.path.isdir(proj):
+                print(f"no sessions in {proj}", file=sys.stderr)
+            else:
+                _no_project_msg()
+            return 1
+        here = os.path.abspath(os.getcwd())
+        try:
+            with console.status(f"Waiting for a Claude Code session in {here} …  "
+                                "(start a turn in Claude Code · Ctrl-C to quit)",
+                                spinner="dots"):
+                while not _has_sessions(proj):
+                    time.sleep(0.5)
+                    proj = resolve_proj(slug)        # re-derive: dir may appear
+        except KeyboardInterrupt:
+            return 130
 
     if do_list:
         now = time.time()
