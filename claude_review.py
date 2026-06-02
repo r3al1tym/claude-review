@@ -309,8 +309,10 @@ def render_screen(turn, surfaces, active, scroll, frozen=False, pending=False):
 
     # Status is a quiet grey glyph + word — EXCEPT frozen, the one mode you
     # actively control, which gets color so the held state is obvious at a glance.
+    # The word is padded to a fixed width below so a state change never shifts
+    # the session id beside it. (The frozen "new content" hint lives on the right.)
     if frozen:
-        dot, state, status_style = "■", ("frozen · new below" if pending else "frozen"), C_FROZEN
+        dot, state, status_style = "■", "frozen", C_FROZEN
     elif live:
         dot, state, status_style = "●", "working", C_META
     else:
@@ -337,14 +339,21 @@ def render_screen(turn, surfaces, active, scroll, frozen=False, pending=False):
     rule_top = Text(" " * gutter + "─" * (W - 2 * gutter), style=C_RULE)
     rule_bot = Text(" " * gutter + "─" * (W - 2 * gutter), style=C_RULE)
 
-    # --- status line (STATE): status · id  .....  scroll% · surfaces -----
+    # --- status line (STATE): status · id  .....  [new ↓] scroll% · surfaces -
     status = Text(no_wrap=True, overflow="ellipsis", style=C_META)
     status.append(" " * gutter)
-    status.append(f"{dot} {state}", style=status_style)   # colored only when frozen
+    # Pad the state word to a fixed width so the id beside it never shifts when
+    # the state changes (working=7 is the longest of working/idle/frozen).
+    status.append(f"{dot} ", style=status_style)
+    status.append(f"{state:<7}", style=status_style)
     status.append(f"  ·  {turn['id'][:8]}")
-    # right side: scroll position (only if it overflows) + which surface you're on
+    # right side: frozen "new content waiting" hint + scroll position + surfaces
     rt = Text(no_wrap=True, style=C_META)
+    if frozen and pending:                         # held view, newer content exists
+        rt.append("new ↓", style=C_FROZEN)
     if max_scroll > 0:
+        if rt.plain:
+            rt.append("   ")
         rt.append(f"↓ {round(100 * scroll / max_scroll)}%")
     if len(surfaces) > 1:                          # ⇥ signals Tab cycles these
         if rt.plain:
@@ -360,10 +369,12 @@ def render_screen(turn, surfaces, active, scroll, frozen=False, pending=False):
     status.append(" " * gutter)
 
     # --- key line (ACTIONS) ----------------------------------------------
+    # Uniformly muted — the keys are reference, not signal. The frozen STATE is
+    # already conveyed by the colored "■ frozen" word on the status line above,
+    # so the key label stays grey to keep the chrome calm.
     keys = Text(no_wrap=True, overflow="ellipsis", style=C_FOOT)
     keys.append(" " * gutter)
-    keys.append("f unfreeze" if frozen else "f freeze",
-                style=C_FROZEN if frozen else C_FOOT)
+    keys.append("f unfreeze" if frozen else "f freeze")
     keys.append(" · ↑↓ scroll" + ("" if frozen else " · s switch") + " · q quit")
 
     return Group(rule_top, PreLines(window), rule_bot, status, keys), max_scroll
