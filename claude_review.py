@@ -21,10 +21,17 @@ In the review view:
   r          refresh now (also unfreezes)  ·  q  quit
 
 Project slug: Claude Code stores transcripts under ~/.claude/projects/<slug>,
-where <slug> is the project's absolute path with every '/' replaced by '-'.
-With no -p, claude-review derives the slug from your current directory.
+where <slug> is the project's absolute path with path punctuation collapsed to
+'-' — every '/', '\\' (Windows), drive ':', '.', and space becomes '-'
+(e.g. /home/you/my.app -> -home-you-my-app, C:\\Users\\you\\repo -> C--Users-you-repo).
+This encoding is undocumented/reverse-engineered, so the surest fix if a slug
+ever mismatches is to `ls ~/.claude/projects/` and pass the literal dir name with
+-p. With no -p, claude-review derives the project from your current directory:
+it forward-encodes the cwd, and if that misses, finds the project whose
+transcripts record a matching cwd. Set CLAUDE_CONFIG_DIR to point at a relocated
+~/.claude.
 """
-import sys, os, json, glob, time, shutil
+import sys, os, re, json, glob, time, shutil
 
 # termios/tty/select are POSIX-only and only needed for the interactive TUI.
 # Imported lazily inside RawInput so that --help, --version, and -l still work
@@ -32,7 +39,11 @@ import sys, os, json, glob, time, shutil
 select = termios = tty = None
 
 HOME = os.path.expanduser("~")
-PROJ_ROOT = os.path.join(HOME, ".claude", "projects")
+# Claude Code honors CLAUDE_CONFIG_DIR to relocate the whole ~/.claude tree
+# (dotfile managers, multi-account). Respect it so we find transcripts there.
+_cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+CONFIG_DIR = os.path.abspath(os.path.expanduser(_cfg)) if _cfg else os.path.join(HOME, ".claude")
+PROJ_ROOT = os.path.join(CONFIG_DIR, "projects")
 TAIL_BYTES = 500_000          # how far back to read for the current turn
 LIVE_WINDOW = 6.0             # mtime fresher than this => session is "live"
 POLL = 0.25                   # input/refresh poll interval (s)
@@ -541,10 +552,63 @@ def review(path, rawin):
 
 
 # ----------------------------------------------------------------------------- main
+def encode_cwd(path):
+    """Mirror Claude Code's project-path encoding. Normalize Windows separators
+    to '/', then collapse path punctuation to '-'. Verified on POSIX that '/' and
+    '.' both map to '-'; '\\' and drive ':' are handled for Windows
+    (C:\\Users\\x -> C--Users-x). Underscores and alphanumerics are PRESERVED (CC
+    keeps them), so we replace a fixed punctuation class, never a broad
+    [^A-Za-z0-9]."""
+    path = os.path.abspath(path).replace("\\", "/")
+    return re.sub(r"[/.: ]", "-", path)        # '/', '.', drive ':', space -> '-'
+
+
+def _transcript_cwd(jsonl_path):
+    """Return the first recorded cwd in a transcript, or None. The first line is a
+    file-history-snapshot with no cwd, so scan a few more lines."""
+    try:
+        with open(jsonl_path, "r", encoding="utf-8", errors="replace") as fh:
+            for n, line in enumerate(fh):
+                if n > 30:
+                    break
+                try:
+                    cwd = json.loads(line).get("cwd")
+                except ValueError:
+                    continue
+                if cwd:
+                    return cwd
+    except OSError:
+        pass
+    return None
+
+
 def resolve_proj(slug):
+    # Explicit -p wins. Accept an absolute path (cross-platform), else a slug under PROJ_ROOT.
     if slug:
-        return os.path.join(PROJ_ROOT, slug)
-    return os.path.join(PROJ_ROOT, os.getcwd().replace("/", "-"))
+        return slug if os.path.isabs(slug) and os.path.isdir(slug) \
+            else os.path.join(PROJ_ROOT, slug)
+
+    # 1) Forward-encode cwd — fast path, matches CC's real rule on all OSes.
+    encoded = os.path.join(PROJ_ROOT, encode_cwd(os.getcwd()))
+    if os.path.isdir(encoded):
+        return encoded
+
+    # 2) Authoritative fallback: find the project dir whose transcripts record
+    #    cwd == our cwd. OS- and version-proof (no slug guessing). Some dirs hold
+    #    only nested subdirs and some hold zero transcripts — glob recursively
+    #    and tolerate empties.
+    here = os.path.abspath(os.getcwd())
+    if os.path.isdir(PROJ_ROOT):
+        for entry in os.scandir(PROJ_ROOT):
+            if not entry.is_dir():
+                continue
+            for jsonl in glob.iglob(os.path.join(entry.path, "**", "*.jsonl"), recursive=True):
+                if _transcript_cwd(jsonl) == here:
+                    return entry.path
+                break          # one transcript per dir is enough to read its cwd
+
+    # 3) Nothing matched — return the encoded guess so the error message is sensible.
+    return encoded
 
 
 def _version():
@@ -565,9 +629,10 @@ def main(argv=None):
     i = 0
 
     # value for a flag: prefer an inline "--flag=value", else the next token.
-    # NOTE: the next token may legitimately start with '-' — every Claude Code
-    # slug is an absolute path with '/'->'-', so it ALWAYS begins with '-'
-    # (e.g. -home-user-repo). We only fail when there is no following token.
+    # NOTE: the next token may legitimately start with '-' — a POSIX Claude Code
+    # slug is an absolute path with '/'->'-', so it usually begins with '-'
+    # (e.g. -home-user-repo); on Windows it begins with the drive letter
+    # (C--Users-you-repo). Either way we only fail when there's no following token.
     def value_for(flag, inline):
         nonlocal i
         if inline is not None:
@@ -607,9 +672,20 @@ def main(argv=None):
     proj = resolve_proj(slug)
     if not os.path.isdir(proj):
         print(f"no project dir: {proj}", file=sys.stderr)
-        print("(claude-review reads Claude Code transcripts under "
-              "~/.claude/projects/<slug>; run it from your project dir, or pass -p <slug>.)",
-              file=sys.stderr)
+        if os.path.isdir(PROJ_ROOT):
+            names = sorted(e.name for e in os.scandir(PROJ_ROOT) if e.is_dir())
+            if names:
+                print(f"Available projects under {PROJ_ROOT} — pass one with -p <slug>:",
+                      file=sys.stderr)
+                for name in names[:8]:
+                    print(f"  {name}", file=sys.stderr)
+                if len(names) > 8:
+                    print(f"  … and {len(names) - 8} more", file=sys.stderr)
+            else:
+                print(f"(no Claude Code projects found under {PROJ_ROOT} yet.)", file=sys.stderr)
+        else:
+            print(f"(transcript root {PROJ_ROOT} doesn't exist — is Claude Code installed? "
+                  "Set CLAUDE_CONFIG_DIR if your ~/.claude lives elsewhere.)", file=sys.stderr)
         return 1
 
     if do_list:
@@ -637,6 +713,15 @@ def main(argv=None):
     if not sys.stdin.isatty():
         print("claude-review needs an interactive terminal (stdin is not a tty).",
               file=sys.stderr)
+        return 1
+
+    # The interactive view needs termios/tty/select (Unix-only). WSL reports
+    # 'posix' and works; native Windows (cmd/PowerShell) does not — fail with a
+    # clear pointer instead of a raw ModuleNotFoundError from RawInput.
+    if os.name != "posix":
+        print("claude-review's interactive view needs a POSIX terminal. On Windows, "
+              "run it inside WSL (Ubuntu), not native cmd/PowerShell. "
+              "-h, -V, and -l work everywhere.", file=sys.stderr)
         return 1
 
     with RawInput() as rawin:
