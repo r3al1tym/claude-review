@@ -42,15 +42,20 @@ Claude Code streams its full transcript — every tool call, file read, and toke
 Requires Python 3.9+ and a POSIX terminal (Linux, macOS, WSL).
 
 ```bash
-# with pipx (recommended — isolated install straight from GitHub)
+# with pipx (recommended — isolated, and sidesteps PEP 668)
 pipx install git+https://github.com/r3al1tym/claude-review
 
 # or from a clone
 git clone https://github.com/r3al1tym/claude-review
 cd claude-review
-pip install --user .
+pipx install .          # or: pip install --user .
 ```
 
+> **pipx is recommended.** On modern distros (Debian/Ubuntu, Homebrew Python)
+> a bare `pip install --user .` may fail with `externally-managed-environment`
+> (PEP 668); use `pipx`, a virtualenv, or add `--break-system-packages` if you
+> understand the tradeoff.
+>
 > Not yet published to PyPI. Once it is, `pipx install claude-review` will work directly.
 
 ## Usage
