@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>claude-review demo</title>
+<style>
+@font-face{font-family:JBM;src:url(jbm-Regular.woff2) format("woff2");font-weight:400;font-style:normal;font-display:block}
+@font-face{font-family:JBM;src:url(jbm-Bold.woff2) format("woff2");font-weight:700;font-style:normal;font-display:block}
+@font-face{font-family:JBM;src:url(jbm-Italic.woff2) format("woff2");font-weight:400;font-style:italic;font-display:block}
+:root{
+  --term:#15140f;            /* one terminal bg, both panes (tmux split) */
+  --content:#ece9e1;         /* full-bright answer text */
+  --g85:#d8d6cf; --g70:#b1aea5; --g62:#9b978d; --g50:#7f7b71; --g37:#5d5a52; --g27:#46433d;
+  --cyan:#46d4d4;            /* the ONE colour — frozen only */
+  --cc-dot:#6f9f6f;          /* claude-code tool bullet (muted green) */
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:#070707;
+  font-family:JBM,"DejaVu Sans Mono",monospace;
+  font-variant-emoji:text}                 /* never substitute colour-emoji glyphs */
+.wrap{width:1010px;margin:14px auto}
+.frame{border-radius:11px;overflow:hidden;background:var(--term);
+  box-shadow:0 26px 70px -14px rgba(0,0,0,.75),0 0 0 1px rgba(255,255,255,.045)}
+.bar{height:34px;background:#211f1a;display:flex;align-items:center;padding:0 13px}
+.bar .l{display:flex;gap:8px}
+.bar .l i{width:11px;height:11px;border-radius:50%}
+.bar .r{background:#f25f57}.bar .y{background:#fbbe2e}.bar .g{background:#28c93f}
+.bar .t{flex:1;text-align:center;color:var(--g50);font-size:12px}
+.bar .t b{color:var(--g70);font-weight:500}
+.split{display:flex;height:592px}
+.pane{flex:1;min-width:0;position:relative;font-size:12.5px;line-height:1.6}
+.vdiv{width:1px;background:var(--g27)}
+
+/* ---------- LEFT : Claude Code, busy back-and-forth ---------- */
+.cc{display:flex;flex-direction:column}
+.cc .scroll{flex:1;overflow:hidden;padding:14px 16px 0;
+  -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 56px);
+  mask-image:linear-gradient(180deg,transparent 0,#000 56px)}
+.cc .e{white-space:pre-wrap;margin:1px 0}
+.cc .u{color:var(--g85)}
+.cc .u .c{color:var(--cc-dot)}
+.cc .tool{color:var(--g62)}
+.cc .tool .d{color:var(--cc-dot)}
+.cc .res{color:var(--g37)}
+.cc .think{color:var(--g50);font-style:italic}
+.cc .a{color:var(--content);margin:3px 0 7px}
+.cc .a b,.cc .a strong{font-weight:700}
+.cc .a .bul{padding-left:14px;text-indent:-14px}
+/* Claude Code's own render of the answer: H1 bold+underline+centered, H3 bold,
+   and a FULL-BORDER monochrome table (no colour) — distinct from the review pane */
+.cc .review .h1{font-weight:700;text-decoration:underline;text-underline-offset:2px;color:#fff;text-align:center;margin:3px 0}
+.cc .review .h3{font-weight:700;color:#fff;margin:11px 0 0}
+.cc .review p{margin:9px 0 0}
+.cc .review p .hl{font-weight:700;color:#fff}
+.cc .review table.box{border-collapse:collapse;margin:11px 0 0;color:var(--content)}
+.cc .review table.box th,.cc .review table.box td{border:1px solid var(--g50);padding:1px 10px;text-align:left}
+.cc .review table.box th{font-weight:700}
+.cc .review .li{margin:4px 0 0}
+.cc .inp{margin:8px 14px 12px;border:1px solid var(--g27);border-radius:7px;
+  padding:7px 11px;color:var(--g70);white-space:pre-wrap;min-height:33px}
+.cc .inp .cur{display:inline-block;width:7px;height:14px;background:var(--g70);
+  transform:translateY(2px)}
+.cc .meta{padding:0 16px 8px;color:var(--g37);font-size:11px}
+
+/* ---------- RIGHT : claude-review, one turn, at rest ---------- */
+.cr{display:flex;flex-direction:column;color:var(--content)}
+.cr .rule{display:flex;align-items:center;gap:8px;padding:0 15px;color:var(--g27)}
+.cr .rule .ln{flex:1;border-top:1px solid var(--g27)}
+.cr .badge{color:var(--g70);background:var(--g27);border-radius:3px;padding:1px 8px;font-size:12px}
+.cr .body{flex:1;overflow:hidden;padding:15px 18px 0 30px}
+/* claude-review markdown: H1 bold+underline+CENTERED, H3 bold; borderless teal table */
+.cr .h1{font-size:13px;font-weight:700;text-decoration:underline;text-underline-offset:3px;color:#fff;text-align:center;margin:0}
+.cr .h3{font-weight:700;color:#fff;margin:20px 0 0}
+.cr p{margin:13px 0 0;max-width:66ch}
+.cr p .hl{font-weight:700;color:#fff}
+.cr .tbl{display:grid;grid-template-columns:auto auto 1fr;column-gap:26px;row-gap:2px;margin:17px 0 0;max-width:70ch}
+.cr .tbl .th{font-weight:700;color:#8fb6b6;border-bottom:1px solid var(--g27);padding-bottom:3px;margin-bottom:3px}
+.cr .li{margin:7px 0 0;color:var(--content)}
+.cr .cur{display:inline-block;width:7px;height:14px;background:var(--content);transform:translateY(2px);margin-left:1px}
+.cr .working{color:var(--g50);font-style:italic}
+.cr .foot{padding:0 15px 13px}
+.cr .keys{display:flex;justify-content:space-between;gap:16px;white-space:nowrap;
+  padding:8px 16px 0;color:var(--g37);font-size:10px;letter-spacing:-.1px}
+.cr .keys>span{white-space:pre}
+.cr .dot{color:var(--g37)} .cr .sid{color:var(--g37)}
+.cr .tabon{color:var(--g85);text-decoration:underline;text-underline-offset:3px}
+.cr.frozen .dot{color:var(--cyan)} .cr.frozen .state{color:var(--cyan)}
+.cr .newhint{color:var(--cyan)}
+</style></head>
+<body>
+<div class="wrap"><div class="frame">
+  <div class="bar"><div class="l"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+    <div class="t"><b>claude</b>&nbsp;&nbsp;│&nbsp;&nbsp;<b>claude-review</b></div></div>
+  <div class="split">
+    <div class="pane cc"><div class="scroll" id="ccScroll"></div>
+      <div class="inp" id="ccInp"></div>
+      <div class="meta">claude-opus-4-8 · ⏎ send</div>
+    </div>
+    <div class="vdiv"></div>
+    <div class="pane cr" id="cr">
+      <div class="rule"><span class="badge">claude review</span><span class="ln"></span></div>
+      <div class="body" id="crBody"></div>
+      <div class="foot">
+        <div class="rule"><span class="ln"></span></div>
+        <div class="keys" id="crKeys"></div>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<script>
+// ---- deterministic timeline (seconds) ----
+// Faithful model: the review pane re-renders the WHOLE current turn on file
+// change — it never typewriters. So: idle shows the prior turn; a fresh prompt
+// resets the turn (jump to top, "working" placeholder); when the answer lands it
+// appears COMPLETE in one render; freeze holds that render while the left moves on.
+var T={ typeStart:0.4, askT:1.7, answerT:4.6, buryAskT:7.2, freezeT:7.0, endT:11.0 };
+var NEW_PROMPT="give me the full cutover review — go / no-go, with risks and blockers";
+
+// ---- THE REVIEW ----
+// One shared markdown render. BOTH panes show this EXACT content — Claude Code
+// renders the full answer too. The only difference the demo makes is context:
+// on the left it's wrapped in tool noise and scrolled past; on the right it's
+// isolated, pinned, and shown from the top. Never truncate it on the left.
+// Rows shared by both panes' tables (content is identical; only the table CHROME
+// differs per renderer — Claude Code = full box borders, no colour; claude-review
+// = borderless, teal headers + one rule).
+var ROWS=[
+ ['Session-store cutover','high','rollback rehearsal — none yet'],
+ ['Token format change','high','dual-read shim — not built'],
+ ['Rate limiter','med','load test at 2× peak'],
+ ['Connection pool','med','raise ceiling + monitor'],
+ ['Cache warmup','low','prewarm script — done']
+];
+var HEAD=['Risk','Severity','Mitigation'];
+
+// claude-review's H1 is bold+underline+CENTERED; H2/H3 bold; H4 bold-italic.
+// The review's title is an H1 so it gets the underline; "Blocking…" is an H3.
+function review(side){               // side: 'cc' (Claude Code) or 'cr' (claude-review)
+  var t = (side==='cr') ? crTable() : ccTable();
+  return ''+
+   '<div class="h1">Cutover review — go / no-go</div>'+
+   '<p><span class="hl">Recommendation: hold.</span> Two of five risks are unmitigated and the data-layer cutover has no tested rollback. Clear the two blockers below and this becomes a go.</p>'+
+   t+
+   '<div class="h3">Blocking before production</div>'+
+   '<div class="li">- [ ] rehearse session-store rollback on staging</div>'+
+   '<div class="li">- [ ] ship the dual-read token shim</div>'+
+   '<p>Everything else can land behind a feature flag.</p>';
+}
+// claude-review: borderless grid, teal headers, single underline rule
+function crTable(){
+  var h='<div class="tbl">'+HEAD.map(function(c){return '<span class="th">'+c+'</span>';}).join('');
+  ROWS.forEach(function(r){ h+=r.map(function(c){return '<span>'+c+'</span>';}).join(''); });
+  return h+'</div>';
+}
+// Claude Code: full box borders, monochrome
+function ccTable(){
+  var h='<table class="box"><thead><tr>'+HEAD.map(function(c){return '<th>'+c+'</th>';}).join('')+'</tr></thead><tbody>';
+  ROWS.forEach(function(r){ h+='<tr>'+r.map(function(c){return '<td>'+c+'</td>';}).join('')+'</tr>'; });
+  return h+'</tbody></table>';
+}
+var REVIEW=review('cr');             // right pane uses the claude-review render
+
+// previous (shorter) turn shown before the new ask — proves jump-to-top on fresh turn
+var PREV='<div class="h1">Data-layer risks</div><p>Two stand out before cutover:</p>'+
+ '<div class="li">- [ ] no rollback rehearsal</div>'+
+ '<div class="li">- [ ] token format not backward-compatible</div>';
+
+var WORKING='<div class="working">(no response yet — Claude is working)</div>';
+
+// ---- LEFT transcript events (appear<0 = always present history) ----
+var L=[
+ {a:-1, h:'<div class="e u"><span class="c">❯</span> walk me through migration-plan.md</div>'},
+ {a:-1, h:'<div class="e tool"><span class="d">●</span> Read(migration-plan.md)</div><div class="e res">  └─ Read 214 lines</div>'},
+ {a:-1, h:'<div class="a">Three phases — <b>auth</b>, <b>data layer</b>, <b>rate limiter</b>. Auth is backward-safe; the data layer is the one to watch.</div>'},
+ {a:-1, h:'<div class="e u"><span class="c">❯</span> what are the risks in the data-layer phase?</div>'},
+ {a:-1, h:'<div class="e tool"><span class="d">●</span> Grep("rollback", src/)</div><div class="e res">  └─ 3 matches</div>'},
+ {a:-1, h:'<div class="e tool"><span class="d">●</span> Read(data-layer/cutover.ts)</div><div class="e res">  └─ Read 180 lines</div>'},
+ {a:-1, h:'<div class="a">Two stand out:<div class="bul">• no rollback rehearsal</div><div class="bul">• token format <b>not</b> backward-compatible</div></div>'},
+ // new ask
+ {a:T.askT, h:'<div class="e u"><span class="c">❯</span> '+NEW_PROMPT+'</div>'},
+ {a:2.3, h:'<div class="e tool"><span class="d">●</span> Read(migration-plan.md)</div>'},
+ {a:2.8, h:'<div class="e tool"><span class="d">●</span> Grep("rollback|rehearsal", src/)</div><div class="e res">  └─ 7 matches across 5 files</div>'},
+ {a:3.4, h:'<div class="e tool"><span class="d">●</span> Read(auth/session-store.ts)</div><div class="e res">  └─ Read 318 lines</div>'},
+ {a:4.0, h:'<div class="e think">✻ Thinking… weighing severity vs. blast radius…</div>'},
+ {a:4.6, h:'<div class="e tool"><span class="d">●</span> Read(data-layer/cutover.ts)</div>'},
+ {a:5.1, h:'<div class="e tool"><span class="d">●</span> Read(config/rate-limits.ts)</div><div class="e res">  └─ Read 64 lines</div>'},
+ // the SAME content renders on the left too (Claude Code's own renderer:
+ // box-bordered table) — then gets buried by what follows
+ {a:T.answerT, h:'<div class="a review">'+review('cc')+'</div>'},
+ {a:T.buryAskT, h:'<div class="e u"><span class="c">❯</span> ok — which one is riskiest to ship first?</div>'},
+ {a:7.0, h:'<div class="e tool"><span class="d">●</span> Read(rate-limiter.ts)</div><div class="e res">  └─ Read 92 lines</div>'},
+ {a:7.5, h:'<div class="e think">✻ Thinking… the data-layer cutover has the widest blast radius…</div>'},
+ {a:8.0, h:'<div class="e tool"><span class="d">●</span> Grep("rateLimit", src/)</div><div class="e res">  └─ 12 matches</div>'},
+ {a:8.7, h:'<div class="e tool"><span class="d">●</span> Read(config/limits.ts)</div>'},
+ {a:9.4, h:'<div class="e think">✻ Thinking…</div>'}
+];
+
+function clamp(x,a,b){return x<a?a:(x>b?b:x);}
+function blink(t){return Math.floor(t*1.6)%2===0;}
+
+function renderRight(t){
+  var cr=document.getElementById('cr'), body=document.getElementById('crBody'), keys=document.getElementById('crKeys');
+  var frozen  = (t>=T.freezeT);                 // freeze holds the view to the end
+  var idle    = (t<T.askT);                     // before the new prompt → prior turn
+  var working = (t>=T.askT && t<T.answerT);     // turn reset, answer not in yet
+  cr.className='pane cr'+(frozen?' frozen':'');
+
+  if(idle){
+    body.innerHTML=PREV;                        // the PREVIOUS turn, in full
+  } else if(working){
+    body.innerHTML=WORKING;                     // fresh turn → top, real placeholder
+  } else {
+    body.innerHTML=REVIEW;                      // the COMPLETE review, all at once
+  }
+  body.scrollTop=0;                             // every turn renders from the top
+
+  // footer — EXACTLY mirrors render_screen(): state word padded to 7 so the id
+  // never shifts; "new ↓" only when frozen+pending; surface tabs only with 2+
+  // surfaces (this turn is response-only, so none); "s switch" dropped when frozen.
+  var dot   = frozen?'■':(idle?'○':'●');
+  var state = frozen?'frozen':(idle?'idle':'working');
+  while(state.length<7) state+=' ';        // pad to 7 (working=longest)
+  var hint  = frozen ? '   <span class="newhint">new ↓</span>' : '';
+  var left='<span><span class="dot">'+dot+'</span> <span class="state">'+state+'</span>  ·  <span class="sid">7dab670a</span>'+hint+'</span>';
+  var fkey  = frozen?'f unfreeze':'f freeze';
+  var keystr= fkey+' · ↑↓ scroll'+(frozen?'':' · s switch')+' · q quit';
+  keys.innerHTML=left+'<span>'+keystr+'</span>';
+}
+
+function renderLeft(t){
+  var sc=document.getElementById('ccScroll'), inp=document.getElementById('ccInp');
+  var html='';
+  for(var i=0;i<L.length;i++){ if(L[i].a<=t) html+=L[i].h; }
+  sc.innerHTML=html; sc.scrollTop=sc.scrollHeight;     // auto-scroll to newest
+  // typing the new prompt into the input box before submit
+  if(t>=T.typeStart && t<T.askT){
+    var f=clamp((t-T.typeStart)/(T.askT-T.typeStart),0,1);
+    var n=Math.floor(f*NEW_PROMPT.length);
+    inp.innerHTML=NEW_PROMPT.slice(0,n)+(blink(t)?'<span class="cur"></span>':'');
+  } else {
+    inp.innerHTML='<span class="cur"></span>';
+  }
+}
+
+function seek(t){ renderLeft(t); renderRight(t); }
+var q=new URLSearchParams(location.search);
+var t=parseFloat(q.get('t')); if(isNaN(t)) t=4.0;
+window.__T=T;
+document.fonts.ready.then(function(){ seek(t); document.body.setAttribute('data-ready','1'); });
+seek(t);
+</script>
+</body></html>
