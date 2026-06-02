@@ -262,7 +262,7 @@ C_RULE = "grey27"          # hairline section dividers above/below content
 C_FOOT = "grey37"          # footer keys + scroll position
 C_TAB_ON = "grey85 underline"   # active surface tab: brighter + underline, no color
 C_FROZEN = "cyan"          # the ONE color in the UI: marks the frozen toggle state
-C_BADGE = "grey50"         # the wordmark inset into the top rule — a quiet label
+C_BADGE = "grey70 on grey27"   # wordmark chip — bg matches the rule so it reads as inset
 
 
 class PreLines:
@@ -368,7 +368,7 @@ def render_screen(turn, surfaces, active, scroll, frozen=False, pending=False):
     # --- top rule: the CLAUDE REVIEW wordmark, with a ▲ overflow cue ---------
     # The wordmark is a calm constant (the prompt is often terse/typo-y, so it's
     # noise up here). A ▲ on the right edge means content is hidden ABOVE.
-    rule_top = inset_rule(W, gutter, left_text="CLAUDE REVIEW", left_style=C_BADGE,
+    rule_top = inset_rule(W, gutter, left_text="claude review", left_style=C_BADGE,
                           right_text=("▲" if scroll > 0 else None))
 
     # --- bottom rule: ▼ + how far down, shown only when more is below --------
