@@ -4,6 +4,8 @@
 ![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20WSL-lightgrey.svg)
 
+> **Faster than HTML. Calmer than the terminal.**
+
 A read-only review pane for a single [Claude Code](https://claude.com/claude-code) session. It pins to one session and shows only its **latest response** — rendered as markdown, refreshed in place — so you can read and make decisions in a calm second pane while you drive Claude Code in the first.
 
 ![claude-review in a split terminal: Claude Code on the left, the latest response pinned and rendered on the right](docs/demo.gif)
