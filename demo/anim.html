@@ -46,7 +46,7 @@ html,body{background:#070707;
 .cc .a .bul{padding-left:14px;text-indent:-14px}
 /* Claude Code's own render of the answer: H1 bold+underline+centered, H3 bold,
    and a FULL-BORDER monochrome table (no colour) — distinct from the review pane */
-.cc .review .h1{font-weight:700;text-decoration:underline;text-underline-offset:2px;color:#fff;text-align:center;margin:3px 0}
+.cc .review .h1{font-weight:700;color:#fff;text-align:left;margin:3px 0}
 .cc .review .h3{font-weight:700;color:#fff;margin:11px 0 0}
 .cc .review p{margin:9px 0 0}
 .cc .review p .hl{font-weight:700;color:#fff}
@@ -138,8 +138,11 @@ function review(side){               // side: 'cc' (Claude Code) or 'cr' (claude
   var t = (side==='cr') ? crTable() : ccTable();
   return ''+
    '<div class="h1">Cutover review — go / no-go</div>'+
-   '<p><span class="hl">Recommendation: hold.</span> Two of five risks are unmitigated and the data-layer cutover has no tested rollback. Clear the two blockers below and this becomes a go.</p>'+
+   '<p><span class="hl">Recommendation: hold.</span> Two of five risks are unmitigated and the data-layer cutover has no tested rollback path. The plan moves auth first (backward-safe), then the data layer, then the rate limiter — but the middle phase is the one that can take down sessions, and we have no way to reverse it once it starts.</p>'+
+   '<p>The token format change compounds this: old and new sessions can\'t coexist, so a partial cutover locks out anyone mid-session. Clear the two blockers below and this becomes a go; everything else can ship behind a feature flag and be tuned in production.</p>'+
    t+
+   '<div class="h3">Why hold</div>'+
+   '<p>A rollback rehearsal is the single highest-leverage thing here — without it, the data-layer cutover is a one-way door. The dual-read shim turns the token change from a hard cutover into a gradual migration, removing the lockout risk entirely.</p>'+
    '<div class="h3">Blocking before production</div>'+
    '<div class="li">- [ ] rehearse session-store rollback on staging</div>'+
    '<div class="li">- [ ] ship the dual-read token shim</div>'+
