@@ -14,22 +14,22 @@ A read-only review pane for a single [Claude Code](https://claude.com/claude-cod
 
 ## Quick start
 
+Already using Claude Code? Install the skill and let Claude wire it up:
+
+```bash
+npx skills add r3al1tym/claude-review -g
+```
+
+Then just ask Claude *"open a review pane for this session"* — it resolves the session, installs the `claude-review` CLI if needed, and hands you the command to run in your other pane.
+
+### Or install the CLI directly
+
 ```bash
 pipx install git+https://github.com/r3al1tym/claude-review@v0.2.1
 claude-review
 ```
 
 Run Claude Code in one pane and `claude-review` in the other; it follows the latest response as Claude works. Requires Python 3.9+ and a POSIX terminal (Linux, macOS, WSL). Not on PyPI yet — install from GitHub with `pipx` (or a venv; a bare `pip install --user` may hit [PEP 668](https://peps.python.org/pep-0668/)).
-
-### Optional: Claude Code skill
-
-If you'd rather have Claude wire it up for you:
-
-```bash
-npx skills add r3al1tym/claude-review -g
-```
-
-Then ask Claude *"open a review pane for this session"* — it resolves the session, installs the CLI if needed, and hands you the command for your other pane.
 
 ## What it does
 
