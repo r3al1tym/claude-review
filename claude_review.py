@@ -630,6 +630,16 @@ def _version():
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    # Windows consoles default to a legacy code page (cp1252/charmap) that can't
+    # encode the UI glyphs (↑↓ ● ─ …) printed by --help / -l via plain print(),
+    # so without this even `claude-review --help` dies with UnicodeEncodeError.
+    # rich handles its own output, but these paths don't go through rich. No-op
+    # on POSIX (already UTF-8); guarded for older streams without reconfigure.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     slug = sid = None
     do_list = False
     i = 0
