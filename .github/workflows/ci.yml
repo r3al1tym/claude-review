@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
 
 jobs:
@@ -53,3 +54,33 @@ jobs:
       - name: Check the personal email never ships in metadata
         run: |
           ! unzip -p dist/*.whl '*/METADATA' | grep -i 'gmail' || (echo "personal email leaked into wheel metadata" && exit 1)
+
+  # Clean-room install test: prove a brand-new user can install from the
+  # published source and resolve a freshly-seeded transcript — the stranger
+  # path that unit tests can't cover. Runs on every push/PR against the current
+  # ref, and on a tag against that exact published tag.
+  cleanroom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the clean-room install test in a fresh container
+        run: |
+          # On a tag, install that published tag; otherwise install from this
+          # checkout's working tree (mounted into the container).
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            REF="${GITHUB_REF_NAME}"; REPO="https://github.com/${GITHUB_REPOSITORY}"
+            SRC_ARG=""
+          else
+            REF="local"; REPO="file:///src"; SRC_ARG="-v ${PWD}:/src:ro"
+          fi
+          docker run --rm \
+            -e CRV_REF="$REF" -e CRV_REPO="$REPO" \
+            -v "${PWD}/tests/cleanroom.sh:/run.sh:ro" $SRC_ARG \
+            python:3.12-slim bash -c '
+              apt-get update -qq >/dev/null && apt-get install -y -qq git >/dev/null
+              useradd -m tester
+              cp /run.sh /home/tester/run.sh && chown tester /home/tester/run.sh
+              # for the non-tag case, give the tester read access to the mounted tree
+              [ -d /src ] && chmod -R a+rX /src || true
+              su tester -c "bash /home/tester/run.sh"
+            '

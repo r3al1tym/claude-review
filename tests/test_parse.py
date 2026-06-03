@@ -4,18 +4,55 @@ The TUI/rendering layer (rich, termios, Live) is intentionally not tested here �
 these cover the deterministic logic that reconstructs a turn from a transcript,
 which is where correctness actually matters.
 """
+import re
 import json
 import importlib.util
 from pathlib import Path
 
 import pytest
 
+_ROOT = Path(__file__).resolve().parent.parent
+
 # Load the single-module package by path (no package install needed for tests).
-_SPEC = importlib.util.spec_from_file_location(
-    "claude_review", Path(__file__).resolve().parent.parent / "claude_review.py"
-)
+_SPEC = importlib.util.spec_from_file_location("claude_review", _ROOT / "claude_review.py")
 cr = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(cr)
+
+
+# --------------------------------------------------------------------------- release hygiene
+# These guard the STRANGER-INSTALL path: the documented install pins a release
+# tag, so the version in pyproject, the tag the installer pins (setup.sh PIN),
+# and the latest CHANGELOG heading must all agree. A drift here means a fresh
+# `pipx install ...@<PIN>` ships code that doesn't match this tree — exactly the
+# bug a fresh-container test caught once. Cheap to assert, so assert it.
+def _pyproject_version():
+    txt = (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    return re.search(r'(?m)^version\s*=\s*"([^"]+)"', txt).group(1)
+
+
+def test_setup_pin_matches_pyproject_version():
+    setup = (_ROOT / "skills/review-pane/scripts/setup.sh").read_text(encoding="utf-8")
+    pin = re.search(r'(?m)^PIN="v([^"]+)"', setup).group(1)
+    assert pin == _pyproject_version(), (
+        "setup.sh PIN is stale vs pyproject version — a fresh install would ship "
+        "the wrong code. Bump the tag/PIN together."
+    )
+
+
+def test_changelog_has_an_entry_for_current_version():
+    changelog = (_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    ver = _pyproject_version()
+    assert re.search(r'(?m)^##\s*\[%s\]' % re.escape(ver), changelog), (
+        f"no CHANGELOG entry for {ver} — document the release before tagging."
+    )
+
+
+def test_skill_manual_install_pin_matches_version():
+    skill = (_ROOT / "skills/review-pane/SKILL.md").read_text(encoding="utf-8")
+    pins = re.findall(r'claude-review@v([0-9][^`)\s]*)', skill)
+    assert pins, "expected a pinned @vX.Y.Z manual-install hint in SKILL.md"
+    for p in pins:
+        assert p == _pyproject_version(), f"SKILL.md install pin @v{p} is stale"
 
 
 def write_jsonl(path, events):
