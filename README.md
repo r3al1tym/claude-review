@@ -97,3 +97,5 @@ This slug encoding is undocumented and reverse-engineered, so if one ever mismat
 ## License
 
 [MIT](LICENSE) © r3al1tym
+
+The JetBrains Mono font files bundled under `demo/` (used only to render the README GIF) are licensed separately under the [SIL Open Font License 1.1](demo/OFL.txt) — they are not part of the installed package.

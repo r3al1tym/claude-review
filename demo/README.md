@@ -17,3 +17,10 @@ Generator for the README's `docs/demo.gif`.
 ```
 
 To preview a single moment, open `anim.html?t=5.5` in a browser.
+
+## Fonts
+
+The bundled `jbm-*.woff2` files are [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono),
+© 2020 The JetBrains Mono Project Authors, licensed under the SIL Open Font
+License 1.1 — see [`OFL.txt`](OFL.txt). The repository is effectively
+dual-licensed: MIT for the code, OFL-1.1 for these demo fonts.
