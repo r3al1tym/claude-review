@@ -25,7 +25,7 @@ Then just ask Claude *"open a review pane for this session"* — it resolves the
 ### Or install the CLI directly
 
 ```bash
-pipx install git+https://github.com/r3al1tym/claude-review@v0.2.1
+pipx install git+https://github.com/r3al1tym/claude-review@v0.3.0
 claude-review
 ```
 
@@ -50,7 +50,7 @@ claude-review -l              # list recent sessions and exit
 claude-review --help          # all flags and keys
 ```
 
-**Keys:** `Tab` surfaces · `f` freeze · `↑`/`↓` or `j`/`k` scroll · `space`/`b` page · `g`/`G` top/bottom · `s` switch session · `r` refresh · `q` quit.
+**Keys:** `Tab` surfaces · `y` copy the current surface · `f` freeze · `↑`/`↓` or `j`/`k` scroll (mouse wheel works too) · `space`/`b` page · `g`/`G` top/bottom · `s` switch session · `r` refresh · `q` quit.
 
 **Reviewing another project:** run `claude-review` from the project directory, or pass `-p` an absolute path. If a lookup ever misses, run `ls ~/.claude/projects/` and pass the literal directory name with `-p`. If your `~/.claude` lives elsewhere, set `CLAUDE_CONFIG_DIR`. ([slug details](docs/troubleshooting.md))
 

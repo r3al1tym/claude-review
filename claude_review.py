@@ -37,7 +37,7 @@ import sys, os, re, json, glob, time, shutil
 # Single source of truth for the version when running from a source checkout
 # (pip-installed runs read it from package metadata instead). Kept in sync with
 # pyproject.toml by a release-hygiene test.
-__version__ = "0.2.1"
+__version__ = "0.3.0"
 
 # termios/tty/select are POSIX-only and only needed for the interactive TUI.
 # Imported lazily inside RawInput so that --help, --version, and -l still work
@@ -185,6 +185,40 @@ def fmt_age(seconds):
     return f"{s // 86400}d"
 
 
+# ----------------------------------------------------------------------------- terminal control
+# Wheel scroll without breaking native text selection: we enable xterm
+# "alternateScroll" (?1007h), which makes the mouse wheel emit arrow keys on the
+# alternate screen — the existing scroll handling picks those up. We deliberately
+# do NOT enable full mouse tracking (?1000h), which would capture clicks and kill
+# the terminal's own click-drag selection — the opposite of what a review surface
+# wants. With alternateScroll the wheel scrolls AND you can still select text.
+ALT_SCROLL_ON = "\x1b[?1007h"
+ALT_SCROLL_OFF = "\x1b[?1007l"
+
+
+def _emit(seq):
+    """Write a raw control sequence straight to the terminal (best-effort)."""
+    try:
+        sys.stdout.write(seq)
+        sys.stdout.flush()
+    except Exception:
+        pass
+
+
+def copy_to_clipboard(text):
+    """Copy text to the terminal clipboard via OSC 52 — a pure stdout escape
+    sequence, so it spawns no subprocess, writes no file, and uses no network
+    (preserving claude-review's read-only posture) and works over SSH. The
+    terminal must support OSC 52 (most modern ones do; some require opt-in).
+    Returns False for empty text so the caller can flash a useful message."""
+    if not text:
+        return False
+    import base64
+    b64 = base64.b64encode(text.encode("utf-8", "replace")).decode("ascii")
+    _emit(f"\x1b]52;c;{b64}\x07")
+    return True
+
+
 # ----------------------------------------------------------------------------- raw input
 class RawInput:
     def __enter__(self):
@@ -220,6 +254,15 @@ class RawInput:
             if self.buf in ("\x1b", "\x1b[") and self._read(0.05):
                 continue
             break
+        # SS3 cursor keys (ESC O A/B/C/D) — emitted in application-cursor mode,
+        # which is how some terminals deliver alternateScroll wheel events. Map
+        # them to the same names as the CSI arrows so the wheel scrolls.
+        if self.buf.startswith("\x1bO") and len(self.buf) >= 3:
+            ss3 = {"A": "up", "B": "down", "C": "right", "D": "left",
+                   "H": "home", "F": "end"}.get(self.buf[2])
+            if ss3:
+                self.buf = self.buf[3:]
+                return ss3
         if self.buf.startswith("\x1b["):
             for seq, name in (("[A", "up"), ("[B", "down"), ("[C", "right"),
                               ("[D", "left"), ("[H", "home"), ("[F", "end")):
@@ -381,7 +424,7 @@ def inset_rule(W, gutter, left_text=None, left_style=C_META, right_text=None):
     return line
 
 
-def render_screen(turn, surfaces, active, scroll, frozen=False, pending=False):
+def render_screen(turn, surfaces, active, scroll, frozen=False, pending=False, flash=None):
     W, H = shutil.get_terminal_size()
     live = (time.time() - turn["mtime"]) < LIVE_WINDOW
     gutter = 4                                   # content left margin (the "column")
@@ -445,9 +488,15 @@ def render_screen(turn, surfaces, active, scroll, frozen=False, pending=False):
         for i, (lbl, _) in enumerate(surfaces):
             right.append(lbl, style=(C_TAB_ON if i == active else C_META))
             right.append(" · " if i < len(surfaces) - 1 else "    ", style=C_META)
-    # action cues — uniformly muted (the colored "■ frozen" above is the state)
-    right.append("f unfreeze" if frozen else "f freeze")
-    right.append(" · ↑↓ scroll" + ("" if frozen else " · s switch") + " · q quit")
+    # action cues — uniformly muted (the colored "■ frozen" above is the state).
+    # A transient flash (e.g. "copied response") briefly replaces the cues after
+    # a yank, so the confirmation appears where the eye already is.
+    if flash:
+        right.append(f"✓ {flash}", style=C_FROZEN)
+    else:
+        right.append("y copy · ")
+        right.append("f unfreeze" if frozen else "f freeze")
+        right.append(" · ↑↓ scroll" + ("" if frozen else " · s switch") + " · q quit")
 
     keyrow = Text(no_wrap=True, overflow="ellipsis", style=C_FOOT)
     pad = max(1, W - len(left.plain) - len(right.plain) - gutter)
@@ -525,6 +574,17 @@ def turn_sig(turn):
             json.dumps(turn["tasks"]) if turn["tasks"] else None)
 
 
+def _surface_raw_text(turn, label):
+    """The RAW source for the active surface, for yanking to the clipboard —
+    unwrapped and unstyled, the actual text not the rendered view."""
+    if label == "plan":
+        return turn.get("plan") or ""
+    if label == "tasks":
+        return "\n".join(f"[{t.get('status')}] {t.get('content')}"
+                         for t in (turn.get("tasks") or []))
+    return turn.get("text") or ""           # response (and any other surface)
+
+
 def review(path, rawin):
     turn = parse_turn(path)
     surfaces = build_surfaces(turn)
@@ -532,62 +592,74 @@ def review(path, rawin):
     scroll = 0
     frozen = False
     pending = False                  # newer content exists but is held back (frozen)
+    flash = None                     # transient footer note (e.g. "copied"), cleared next key
     last_sig = turn_sig(turn)
     last_mtime = turn["mtime"]
-    with Live(console=console, screen=True, auto_refresh=False) as live:
-        while True:
-            screen, max_scroll = render_screen(turn, surfaces, active, scroll,
-                                               frozen=frozen, pending=pending)
-            live.update(screen, refresh=True)
+    _emit(ALT_SCROLL_ON)             # wheel scrolls without capturing selection
+    try:
+        with Live(console=console, screen=True, auto_refresh=False) as live:
+            while True:
+                screen, max_scroll = render_screen(turn, surfaces, active, scroll,
+                                                   frozen=frozen, pending=pending,
+                                                   flash=flash)
+                live.update(screen, refresh=True)
 
-            k = rawin.get(POLL)
-            if k == "q":                       # only q quits; esc is harmless here
-                return "quit"
-            if k == "s":
-                return "switch"
-            if k == "f":
-                frozen = not frozen
-                if not frozen:
-                    last_mtime = 0             # unfreeze -> pull latest immediately
-            elif k == "\t":
-                active = (active + 1) % len(surfaces)
-                scroll = 0
-            elif k in ("j", "down"):
-                scroll = min(scroll + 1, max_scroll)
-            elif k in ("k", "up"):
-                scroll = max(scroll - 1, 0)
-            elif k in (" ",):
-                scroll = min(scroll + 10, max_scroll)
-            elif k in ("b",):
-                scroll = max(scroll - 10, 0)
-            elif k in ("g", "home"):
-                scroll = 0
-            elif k in ("G", "end"):
-                scroll = max_scroll
-            elif k == "r":
-                frozen = False
-                last_mtime = 0      # force reparse below
-
-            # check the file's mtime; while frozen we only note that newer
-            # content is waiting, without disturbing what you're reading.
-            try:
-                m = os.path.getmtime(path)
-            except OSError:
-                m = last_mtime
-            if frozen:
-                pending = m != last_mtime
-                continue
-            pending = False
-            if m != last_mtime:
-                last_mtime = m
-                turn = parse_turn(path)
-                surfaces = build_surfaces(turn)
-                active = min(active, len(surfaces) - 1)
-                sig = turn_sig(turn)
-                if sig != last_sig:          # fresh turn -> jump to top to read it
+                k = rawin.get(POLL)
+                if k is not None:
+                    flash = None               # any keypress clears the transient note
+                if k == "q":                   # only q quits; esc is harmless here
+                    return "quit"
+                if k == "s":
+                    return "switch"
+                if k == "f":
+                    frozen = not frozen
+                    if not frozen:
+                        last_mtime = 0         # unfreeze -> pull latest immediately
+                elif k == "y":                 # yank the active surface's RAW text
+                    label = surfaces[active][0]
+                    ok = copy_to_clipboard(_surface_raw_text(turn, label))
+                    flash = f"copied {label}" if ok else "nothing to copy"
+                elif k == "\t":
+                    active = (active + 1) % len(surfaces)
                     scroll = 0
-                    active = 0
-                    last_sig = sig
+                elif k in ("j", "down"):
+                    scroll = min(scroll + 1, max_scroll)
+                elif k in ("k", "up"):
+                    scroll = max(scroll - 1, 0)
+                elif k in (" ",):
+                    scroll = min(scroll + 10, max_scroll)
+                elif k in ("b",):
+                    scroll = max(scroll - 10, 0)
+                elif k in ("g", "home"):
+                    scroll = 0
+                elif k in ("G", "end"):
+                    scroll = max_scroll
+                elif k == "r":
+                    frozen = False
+                    last_mtime = 0      # force reparse below
+
+                # check the file's mtime; while frozen we only note that newer
+                # content is waiting, without disturbing what you're reading.
+                try:
+                    m = os.path.getmtime(path)
+                except OSError:
+                    m = last_mtime
+                if frozen:
+                    pending = m != last_mtime
+                    continue
+                pending = False
+                if m != last_mtime:
+                    last_mtime = m
+                    turn = parse_turn(path)
+                    surfaces = build_surfaces(turn)
+                    active = min(active, len(surfaces) - 1)
+                    sig = turn_sig(turn)
+                    if sig != last_sig:      # fresh turn -> jump to top to read it
+                        scroll = 0
+                        active = 0
+                        last_sig = sig
+    finally:
+        _emit(ALT_SCROLL_OFF)               # always restore the terminal's wheel
 
 
 # ----------------------------------------------------------------------------- main

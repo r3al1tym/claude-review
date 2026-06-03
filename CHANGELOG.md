@@ -4,6 +4,22 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-06-03
+
+Mouse scroll and clipboard copy — a review surface should be easy to scroll and
+quote from.
+
+### Added
+- **Mouse-wheel scrolling.** Enables xterm `alternateScroll` (`?1007h`) so the
+  wheel scrolls the response, while leaving native click-drag text selection
+  intact (no full mouse capture). Wheel events arriving as SS3 cursor keys
+  (`ESC O A/B`) are now handled too.
+- **`y` copies the active surface** (response / plan / tasks) — the raw,
+  unwrapped source text — to the clipboard via OSC 52 (a stdout escape: no
+  subprocess, no file write, no network, and works over SSH). A transient
+  `✓ copied` note flashes in the footer. This is the reliable way to grab a long
+  response in full, since the alternate screen has no scrollback to drag-select.
+
 ## [0.2.1] — 2026-06-03
 
 Pre-release polish.

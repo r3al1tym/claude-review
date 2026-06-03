@@ -240,6 +240,37 @@ def test_drift_banner_only_when_idle(tmp_path):
     assert "claude is working" in renderable.plain.lower()
 
 
+# --------------------------------------------------------------------------- copy / yank
+def test_surface_raw_text_picks_the_right_source():
+    turn = {"text": "the response", "plan": "the plan",
+            "tasks": [{"status": "completed", "content": "did a thing"},
+                      {"status": "pending", "content": "next thing"}]}
+    assert cr._surface_raw_text(turn, "response") == "the response"
+    assert cr._surface_raw_text(turn, "plan") == "the plan"
+    assert "did a thing" in cr._surface_raw_text(turn, "tasks")
+    assert "[pending] next thing" in cr._surface_raw_text(turn, "tasks")
+
+
+def test_surface_raw_text_handles_missing_surfaces():
+    assert cr._surface_raw_text({"text": None, "plan": None, "tasks": None}, "response") == ""
+    assert cr._surface_raw_text({"text": None, "plan": None, "tasks": None}, "plan") == ""
+    assert cr._surface_raw_text({"text": None, "plan": None, "tasks": None}, "tasks") == ""
+
+
+def test_copy_to_clipboard_emits_osc52(capsys):
+    import base64
+    assert cr.copy_to_clipboard("hello world") is True
+    out = capsys.readouterr().out
+    assert out.startswith("\x1b]52;c;") and out.endswith("\x07")
+    payload = out[len("\x1b]52;c;"):-1]
+    assert base64.b64decode(payload).decode() == "hello world"
+
+
+def test_copy_to_clipboard_empty_is_noop(capsys):
+    assert cr.copy_to_clipboard("") is False
+    assert capsys.readouterr().out == ""    # nothing emitted, so caller can flash a hint
+
+
 # --------------------------------------------------------------------------- is_real_prompt
 @pytest.mark.parametrize("content,expected", [
     ("a genuine question", True),
