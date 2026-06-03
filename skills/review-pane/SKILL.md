@@ -49,7 +49,7 @@ Read the final line:
   `$HOME/.local/bin/claude-review -s <id>`, and tell the user to add
   `~/.local/bin` to PATH (or open a fresh login pane) for the short form to work.
 - `SETUP_FAIL <reason>` — tell the user the reason; offer the manual install
-  (`pipx install git+https://github.com/r3al1tym/claude-review@v0.1.0`).
+  (`pipx install git+https://github.com/r3al1tym/claude-review@v0.2.0`).
 
 ### 2. Resolve which session the user means
 
