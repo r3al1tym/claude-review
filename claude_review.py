@@ -552,15 +552,21 @@ def review(path, rawin):
 
 
 # ----------------------------------------------------------------------------- main
-def encode_cwd(path):
-    """Mirror Claude Code's project-path encoding. Normalize Windows separators
-    to '/', then collapse path punctuation to '-'. Verified on POSIX that '/' and
-    '.' both map to '-'; '\\' and drive ':' are handled for Windows
-    (C:\\Users\\x -> C--Users-x). Underscores and alphanumerics are PRESERVED (CC
+def _encode_path(abs_path):
+    """Collapse path punctuation to '-' the way Claude Code does: normalize
+    Windows '\\' to '/', then map '/', '.', drive ':' and space to '-'. Pure (no
+    filesystem access) and expects an already-absolute path, so it encodes both
+    POSIX and Windows inputs deterministically on any OS — which is what makes it
+    unit-testable cross-platform. Underscores and alphanumerics are PRESERVED (CC
     keeps them), so we replace a fixed punctuation class, never a broad
     [^A-Za-z0-9]."""
-    path = os.path.abspath(path).replace("\\", "/")
-    return re.sub(r"[/.: ]", "-", path)        # '/', '.', drive ':', space -> '-'
+    return re.sub(r"[/.: ]", "-", abs_path.replace("\\", "/"))
+
+
+def encode_cwd(path):
+    """Slug for a path on THIS OS. Verified on POSIX that '/' and '.' both map to
+    '-' (C:\\Users\\x -> C--Users-x on Windows)."""
+    return _encode_path(os.path.abspath(path))
 
 
 def _transcript_cwd(jsonl_path):

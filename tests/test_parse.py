@@ -213,14 +213,46 @@ def test_oneline_handles_none():
     assert cr.oneline(None) == ""
 
 
-# --------------------------------------------------------------------------- resolve_proj
-def test_resolve_proj_derives_slug_from_cwd(monkeypatch, tmp_path):
-    monkeypatch.setattr(cr.os, "getcwd", lambda: "/home/u/myrepo")
-    assert cr.resolve_proj(None) == cr.os.path.join(cr.PROJ_ROOT, "-home-u-myrepo")
+# --------------------------------------------------------------------------- slug encoding
+# _encode_path is pure (no filesystem) and takes an already-absolute path, so the
+# same assertions hold on Linux, macOS, AND Windows runners — this is the row of
+# the compat matrix that the OS matrix in CI is meant to keep honest.
+@pytest.mark.parametrize("abs_path,slug", [
+    # POSIX: '/' and '.' both collapse to '-' (the original bug missed '.')
+    ("/home/u/myrepo", "-home-u-myrepo"),
+    ("/home/u/my.app", "-home-u-my-app"),
+    ("/home/u/repo/.claude/skills", "-home-u-repo--claude-skills"),  # '.claude' -> '--claude'
+    ("/home/u/a project", "-home-u-a-project"),                      # space -> '-'
+    # underscores and digits are PRESERVED (the regression we avoided)
+    ("/home/u/my_repo2", "-home-u-my_repo2"),
+    # Windows: backslash separators + drive ':' both map to '-'
+    (r"C:\Users\you\repo", "C--Users-you-repo"),
+    (r"C:\Users\a b\my.app", "C--Users-a-b-my-app"),
+])
+def test_encode_path_cross_os(abs_path, slug):
+    assert cr._encode_path(abs_path) == slug
 
 
-def test_resolve_proj_uses_explicit_slug():
+def test_encode_cwd_matches_real_machine_rule(monkeypatch):
+    # encode_cwd runs abspath on THIS OS; on POSIX an absolute path is unchanged.
+    monkeypatch.setattr(cr.os.path, "abspath", lambda p: p)
+    assert cr.encode_cwd("/home/u/my.app") == "-home-u-my-app"
+
+
+def test_resolve_proj_explicit_slug_joins_under_proj_root():
     assert cr.resolve_proj("-home-u-other") == cr.os.path.join(cr.PROJ_ROOT, "-home-u-other")
+
+
+def test_resolve_proj_derives_slug_from_cwd(monkeypatch, tmp_path):
+    # Use a real existing dir so the fast-path os.path.isdir check passes and we
+    # don't fall through to the transcript scan. Build the matching slug dir.
+    monkeypatch.setattr(cr, "PROJ_ROOT", str(tmp_path))
+    here = tmp_path / "work"
+    here.mkdir()
+    slug = cr._encode_path(str(here.resolve()))
+    (tmp_path / slug).mkdir()
+    monkeypatch.setattr(cr.os, "getcwd", lambda: str(here.resolve()))
+    assert cr.resolve_proj(None) == cr.os.path.join(str(tmp_path), slug)
 
 
 # --------------------------------------------------------------------------- turn_sig
