@@ -33,6 +33,11 @@ transcripts record a matching cwd. Set CLAUDE_CONFIG_DIR to point at a relocated
 """
 import sys, os, re, json, glob, time, shutil
 
+# Single source of truth for the version when running from a source checkout
+# (pip-installed runs read it from package metadata instead). Kept in sync with
+# pyproject.toml by a release-hygiene test.
+__version__ = "0.2.0"
+
 # termios/tty/select are POSIX-only and only needed for the interactive TUI.
 # Imported lazily inside RawInput so that --help, --version, and -l still work
 # (and fail gracefully) on non-POSIX platforms instead of crashing at import.
@@ -244,14 +249,23 @@ class RawInput:
 
 
 # ----------------------------------------------------------------------------- rendering
-from rich.console import Console, Group
-from rich.markdown import Markdown
-from rich.text import Text
-from rich.padding import Padding
-from rich.segment import Segment
-from rich.live import Live
-from rich.table import Table
-from rich.theme import Theme
+# rich powers the interactive TUI. It's a declared dependency, but guard the
+# import (like termios above) so --help/--version/-l — which use plain print()
+# and no rich — still work from a source checkout where rich isn't installed,
+# instead of dying with a raw ModuleNotFoundError at import. main() prints a
+# clean hint before any rich-dependent path if it's missing.
+try:
+    from rich.console import Console, Group
+    from rich.markdown import Markdown
+    from rich.text import Text
+    from rich.padding import Padding
+    from rich.segment import Segment
+    from rich.live import Live
+    from rich.table import Table
+    from rich.theme import Theme
+    _HAVE_RICH = True
+except ImportError:
+    _HAVE_RICH = False
 
 # Monochrome markdown: in the content area, emphasis comes from WEIGHT
 # (bold/italic/underline), never hue — so the prose reads clean and the only
@@ -272,7 +286,7 @@ console = Console(theme=Theme({
     "markdown.hr": "grey27",
     "markdown.emph": "italic",
     "markdown.strong": "bold",
-}))
+})) if _HAVE_RICH else None
 
 # Palette — chrome recedes, content is king. Hierarchy comes from BRIGHTNESS,
 # not hue: every frame element is greyscale so nothing competes with the
@@ -647,7 +661,9 @@ def _version():
         try:
             return version("claude-review")
         except PackageNotFoundError:
-            return "0.0.0+source"
+            # running from a source checkout (not pip-installed) — report the
+            # in-tree version so bug reports still carry a useful number.
+            return f"{__version__}+source"
     except Exception:
         return "unknown"
 
@@ -730,6 +746,16 @@ def main(argv=None):
         else:
             print(f"(transcript root {PROJ_ROOT} doesn't exist — is Claude Code installed? "
                   "Set CLAUDE_CONFIG_DIR if your ~/.claude lives elsewhere.)", file=sys.stderr)
+
+    # Everything below -l (the spinner wait and the TUI) renders via rich.
+    # -h/-V returned already; -l is handled further down and needs no rich. So
+    # this is the first point an interactive launch genuinely needs it — fail
+    # with a clean hint rather than a traceback if a source checkout lacks it.
+    if not do_list and not _HAVE_RICH:
+        print("claude-review's interactive view needs the 'rich' package — "
+              "install it with 'pip install rich' (or reinstall via pipx). "
+              "-h, -V, and -l work without it.", file=sys.stderr)
+        return 1
 
     # Brand-new-session race: claude-review launched the instant Claude Code
     # starts, before the first transcript is flushed — so the project dir may

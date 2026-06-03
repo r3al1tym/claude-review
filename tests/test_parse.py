@@ -30,6 +30,13 @@ def _pyproject_version():
     return re.search(r'(?m)^version\s*=\s*"([^"]+)"', txt).group(1)
 
 
+def test_module_version_matches_pyproject():
+    assert cr.__version__ == _pyproject_version(), (
+        "claude_review.__version__ is out of sync with pyproject — source runs "
+        "would report the wrong version. Bump both together."
+    )
+
+
 def test_setup_pin_matches_pyproject_version():
     setup = (_ROOT / "skills/review-pane/scripts/setup.sh").read_text(encoding="utf-8")
     pin = re.search(r'(?m)^PIN="v([^"]+)"', setup).group(1)
