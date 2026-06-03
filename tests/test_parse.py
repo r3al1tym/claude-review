@@ -149,6 +149,45 @@ def test_no_assistant_text_yields_none(tmp_path):
     assert cr.parse_turn(str(f))["text"] is None
 
 
+# --------------------------------------------------------------------------- format drift
+def test_known_schema_is_not_flagged_as_drift(tmp_path):
+    # a tool-only assistant turn parses fine (tool_use is recognized) -> no drift
+    f = tmp_path / "s.jsonl"
+    write_jsonl(f, [user("q"), assistant([tool_block("Bash", command="ls")])])
+    assert cr.parse_turn(str(f))["format_drift"] is False
+
+
+def test_unrecognized_content_blocks_flag_drift(tmp_path):
+    # assistant record present, but no content block matches the known schema
+    f = tmp_path / "s.jsonl"
+    write_jsonl(f, [
+        user("q"),
+        {"type": "assistant", "message": {"model": "claude-x",
+            "content": [{"type": "some_future_block", "data": "???"}]}},
+    ])
+    assert cr.parse_turn(str(f))["format_drift"] is True
+
+
+def test_no_assistant_records_is_not_drift(tmp_path):
+    # only a user prompt so far -> not drift, just nothing yet
+    f = tmp_path / "s.jsonl"
+    write_jsonl(f, [user("q")])
+    assert cr.parse_turn(str(f))["format_drift"] is False
+
+
+def test_drift_banner_only_when_idle(tmp_path):
+    # format_drift + stale file -> drift banner; format_drift + live file -> the
+    # normal "working" message (don't cry wolf mid-stream).
+    drift_turn = {"plan": None, "text": None, "tasks": None,
+                  "format_drift": True, "mtime": 0}                 # ancient -> idle
+    label, renderable = cr.build_surfaces(drift_turn)[0]
+    assert "format not recognized" in renderable.plain.lower()
+
+    live_turn = dict(drift_turn, mtime=cr.time.time())             # fresh -> live
+    _, renderable = cr.build_surfaces(live_turn)[0]
+    assert "claude is working" in renderable.plain.lower()
+
+
 # --------------------------------------------------------------------------- is_real_prompt
 @pytest.mark.parametrize("content,expected", [
     ("a genuine question", True),

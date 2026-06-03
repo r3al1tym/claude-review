@@ -82,6 +82,8 @@ def parse_turn(path):
     model = None
     tasks = {}            # id -> {subject, status}, replayed from Task* tool calls
     task_seq = 0
+    assistant_seen = 0    # how many assistant records appeared in this tail
+    parsed_ok = False     # did any assistant content block match our known schema
     for ln in tail_lines(path):
         try:
             o = json.loads(ln)
@@ -94,11 +96,16 @@ def parse_turn(path):
                 q = c
                 texts, plan = [], None              # new turn resets (tasks persist)
         elif t == "assistant":
+            assistant_seen += 1
             m = o.get("message", {})
             model = m.get("model") or model
             for b in m.get("content", []) or []:
                 if not isinstance(b, dict):
                     continue
+                # any recognized block type means the schema still parses — even
+                # tool_use / thinking, which produce no visible surface this turn.
+                if b.get("type") in ("text", "tool_use", "thinking", "redacted_thinking"):
+                    parsed_ok = True
                 if b.get("type") == "text" and b.get("text", "").strip():
                     texts.append(b["text"])
                 elif b.get("type") == "tool_use":
@@ -142,6 +149,9 @@ def parse_turn(path):
         "tasks": tasklist,
         "model": model,
         "mtime": mtime,
+        # format-drift signal: assistant records exist but NONE of their content
+        # blocks matched our known schema -> our parser is likely stale.
+        "format_drift": assistant_seen > 0 and not parsed_ok,
     }
 
 
@@ -310,7 +320,21 @@ def build_surfaces(turn):
     if turn["tasks"]:
         out.append(("tasks", tasks_renderable(turn["tasks"])))
     if not out:
-        out.append(("waiting", Text("  (no response yet — Claude is working)", style="dim italic")))
+        # Empty surface has two causes. If the file is still being written
+        # (fresh mtime), it's a normal pre-text turn — Claude is mid-stream. But
+        # if assistant records exist yet NONE parsed AND the file is idle, our
+        # parser is likely stale against a changed transcript format — say so
+        # instead of pretending Claude is working.
+        live = (time.time() - turn["mtime"]) < LIVE_WINDOW
+        if turn.get("format_drift") and not live:
+            out.append(("waiting", Text(
+                "  Transcript format not recognized.\n\n"
+                "  claude-review found assistant records but couldn't parse any of\n"
+                "  them — Claude Code's transcript format may have changed. Try\n"
+                "  updating claude-review (the parser likely needs a new release).",
+                style="yellow")))
+        else:
+            out.append(("waiting", Text("  (no response yet — Claude is working)", style="dim italic")))
     return out
 
 
