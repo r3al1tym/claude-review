@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] — 2026-06-03
+
+Pre-release polish.
+
+### Fixed
+- `--help`/`-V`/`-l` now work from a source checkout without `rich` installed
+  (the import is guarded); the interactive view prints a clean "install rich"
+  hint instead of a traceback.
+- `-V` from a source checkout reports the real version (`0.2.1+source`) instead
+  of `0.0.0+source`.
+
 ## [0.2.0] — 2026-06-03
 
 Cross-platform correctness and clean-setup robustness. A portability audit
