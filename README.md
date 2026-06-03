@@ -6,96 +6,67 @@
 
 > **Faster than HTML. Calmer than the terminal.**
 
-A read-only review pane for a single [Claude Code](https://claude.com/claude-code) session. It pins to one session and shows only its **latest response** — rendered as markdown, refreshed in place — so you can read and make decisions in a calm second pane while you drive Claude Code in the first.
+A read-only review pane for a single [Claude Code](https://claude.com/claude-code) session. It pins to one session and shows only its **latest response** — rendered as markdown, refreshed in place — so you read and decide in a calm second pane while you drive Claude Code in the first.
 
 ![claude-review in a split terminal: Claude Code on the left, the latest response pinned and rendered on the right](docs/demo.gif)
 
-## Features
+**Read-only and offline at runtime.** It only reads your local Claude Code transcript files — no writes, no network, no telemetry. It's a [single Python file](claude_review.py) with one dependency ([`rich`](https://github.com/Textualize/rich)), so you can read it before you run it.
 
-- **One session, pinned.** Pick the session you care about; the view never drifts to another.
-- **Latest response only.** The current answer, rendered as clean markdown — re-anchored to the top each turn, never a scrolling log.
-- **Surfaces.** `Tab` cycles `response`, `plan` (from plan mode), and `tasks` (the live task list) for the current turn.
-- **Freeze.** Press `f` to hold the view while Claude keeps working; a marker shows when newer content is waiting.
-- **Quiet chrome.** No header. A two-line muted footer carries state, session id, scroll position, and keys — nothing competes with the response.
-- **Read-only and offline.** It only reads transcript files. No writes, no network, no telemetry. Sole dependency: [`rich`](https://github.com/Textualize/rich).
+## Quick start
 
-> Claude Code also has a built-in [`/focus`](https://code.claude.com/docs/en/interactive-mode) command that declutters the live session in place. `claude-review` is the complement — a dedicated, scrollable reading pane alongside it.
+```bash
+pipx install git+https://github.com/r3al1tym/claude-review@v0.2.1
+claude-review
+```
 
-## Install
+Run Claude Code in one pane and `claude-review` in the other; it follows the latest response as Claude works. Requires Python 3.9+ and a POSIX terminal (Linux, macOS, WSL). Not on PyPI yet — install from GitHub with `pipx` (or a venv; a bare `pip install --user` may hit [PEP 668](https://peps.python.org/pep-0668/)).
 
-### As a Claude Code skill (recommended)
+### Optional: Claude Code skill
 
-Install the bundled skill with the [`skills`](https://github.com/vercel-labs/skills) CLI — it detects your agent(s) and places the skill correctly (`~/.claude/skills/` for Claude Code, plus Cursor, Codex, and others):
+If you'd rather have Claude wire it up for you:
 
 ```bash
 npx skills add r3al1tym/claude-review -g
 ```
 
-Then just ask Claude *"open a review pane for this session"* — it resolves the session, installs the `claude-review` CLI if needed, and hands you the command to run in your other pane. Drop `-g` to install into the current project instead; manage with `npx skills update | ls | rm`.
+Then ask Claude *"open a review pane for this session"* — it resolves the session, installs the CLI if needed, and hands you the command for your other pane.
 
-### As a CLI
+## What it does
 
-```bash
-pipx install git+https://github.com/r3al1tym/claude-review
-```
+- **One session, pinned.** Pick the session you care about; the view never drifts to another.
+- **Latest response only.** The current answer, rendered as clean markdown — re-anchored to the top each turn, never a scrolling log.
+- **Surfaces.** `Tab` cycles `response`, `plan` (from plan mode), and `tasks` (the live task list).
+- **Freeze.** Press `f` to hold the view while Claude keeps working; a marker shows when newer content is waiting.
 
-Requires Python 3.9+ and a POSIX terminal (Linux, macOS, WSL).
-
-> On modern distros a bare `pip install --user` may fail with `externally-managed-environment` (PEP 668) — use `pipx`, a virtualenv, or `--break-system-packages`. Not yet on PyPI.
+> Claude Code's built-in [`/focus`](https://code.claude.com/docs/en/interactive-mode) declutters the *live* session in place; `claude-review` is the complement — a dedicated, scrollable reading pane alongside it.
 
 ## Usage
 
 ```bash
-claude-review                 # pick a session interactively, then review it
-claude-review -s <id-prefix>  # attach directly to a session id (prefix is fine)
-claude-review -p <slug>       # review a different project (see below)
+claude-review                 # pick a recent session, then review it
+claude-review -s <id-prefix>  # attach directly to a session id
+claude-review -p <path|slug>  # review another project (path or Claude slug)
 claude-review -l              # list recent sessions and exit
-claude-review -V              # print version
-claude-review -h              # help
+claude-review --help          # all flags and keys
 ```
 
-Run Claude Code in one pane and `claude-review` in the other; the review pane updates to the latest response as Claude works.
+**Keys:** `Tab` surfaces · `f` freeze · `↑`/`↓` or `j`/`k` scroll · `space`/`b` page · `g`/`G` top/bottom · `s` switch session · `r` refresh · `q` quit.
 
-To try the UI without a live session, a sample transcript ships in the repo:
+**Reviewing another project:** run `claude-review` from the project directory, or pass `-p` an absolute path. If a lookup ever misses, run `ls ~/.claude/projects/` and pass the literal directory name with `-p`. If your `~/.claude` lives elsewhere, set `CLAUDE_CONFIG_DIR`. ([slug details](docs/troubleshooting.md))
 
-```bash
-claude-review -p "$PWD/examples"   # from a clone
-```
-
-### Keys
-
-| Key | Action |
-|-----|--------|
-| `f` | freeze / unfreeze auto-update |
-| `Tab` | cycle surfaces (response / plan / tasks) |
-| `↑` `↓` or `j` `k` | scroll one line |
-| `space` / `b` | scroll one page |
-| `g` / `G` | jump to top / bottom |
-| `s` | switch session (back to the picker) |
-| `r` | refresh now (also unfreezes) |
-| `q` | quit |
-
-### Project slug
-
-By default, Claude Code stores transcripts under `~/.claude/projects/<slug>`, where `<slug>` is the project's absolute path with **every non-alphanumeric character** replaced by `-` — `/`, `\` (Windows), drive `:`, `.`, space, `_`, `+`, and so on all collapse to `-`, while case is preserved (e.g. `/home/you/my.app` → `-home-you-my-app`, `C:\Users\you\repo` → `C--Users-you-repo`). Very long paths are truncated with a hash suffix.
-
-Without `-p`, `claude-review` derives the project from your current directory: it forward-encodes the cwd, and if that misses (a very long path, or an encoding quirk), falls back to finding the project whose transcripts record a matching `cwd` — so it resolves either way. Pass `-p` to review a project you're not `cd`'d into; it accepts either a `<slug>` or an absolute project path. If your `~/.claude` lives elsewhere, set `CLAUDE_CONFIG_DIR`.
-
-This slug encoding is undocumented and reverse-engineered, so if one ever mismatches, the surest fix is `ls ~/.claude/projects/` and pass the literal directory name with `-p`.
+To try the UI with no live session, a sample transcript ships in the repo: `claude-review -p "$PWD/examples"` (from a clone).
 
 ## How it works
 
-`claude-review` tails the session's JSONL transcript and reconstructs the current turn — the latest user prompt and everything the assistant produced after it. It extracts the response text, any `ExitPlanMode` plan, and the task list (from `TaskCreate`/`TaskUpdate` events), re-reading only when the file changes and jumping to the top on each fresh turn.
+`claude-review` reads the selected session's local JSONL transcript and reconstructs the current turn — the latest prompt and the response, plan, and tasks the assistant produced after it — re-reading only when the file changes. No network, ever.
 
 ## Limitations
 
 - **Terminal-driven.** Needs an interactive TTY; it's a viewer, not a pipe.
-- **Plan surface is best-effort.** Depends on Claude Code emitting `ExitPlanMode` events; without plan mode you'll see `response` (and `tasks`, when present).
-- **No horizontal scroll.** Very wide tables are wrapped to fit, not scrolled sideways.
+- **Plan/tasks are best-effort.** They depend on Claude Code emitting the relevant transcript events.
+- **No horizontal scroll.** Wide tables wrap to fit rather than scroll sideways.
 - **Transcript format.** Parses Claude Code's current JSONL layout; a future format change may need a parser update — issues/PRs welcome.
 
 ## License
 
-[MIT](LICENSE) © r3al1tym
-
-The JetBrains Mono font files bundled under `demo/` (used only to render the README GIF) are licensed separately under the [SIL Open Font License 1.1](demo/OFL.txt) — they are not part of the installed package.
+[MIT](LICENSE) © r3al1tym. The JetBrains Mono fonts under `demo/` (used only to render the GIF, not part of the installed package) are [SIL OFL 1.1](demo/OFL.txt).

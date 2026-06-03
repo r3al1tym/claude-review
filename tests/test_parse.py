@@ -62,6 +62,14 @@ def test_skill_manual_install_pin_matches_version():
         assert p == _pyproject_version(), f"SKILL.md install pin @v{p} is stale"
 
 
+def test_readme_install_pin_matches_version():
+    readme = (_ROOT / "README.md").read_text(encoding="utf-8")
+    pins = re.findall(r'claude-review@v([0-9][^`)\s]*)', readme)
+    assert pins, "expected a pinned @vX.Y.Z install command in README"
+    for p in pins:
+        assert p == _pyproject_version(), f"README install pin @v{p} is stale — bump it with the release"
+
+
 def write_jsonl(path, events):
     path.write_text("\n".join(json.dumps(e) for e in events) + "\n", encoding="utf-8")
 
