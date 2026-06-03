@@ -77,9 +77,9 @@ claude-review -p "$PWD/examples"   # from a clone
 
 ### Project slug
 
-Claude Code stores transcripts under `~/.claude/projects/<slug>`, where `<slug>` is the project's absolute path with path punctuation collapsed to `-` — every `/`, `\` (Windows), drive `:`, `.`, and space becomes `-` (e.g. `/home/you/my.app` → `-home-you-my-app`, `C:\Users\you\repo` → `C--Users-you-repo`).
+By default, Claude Code stores transcripts under `~/.claude/projects/<slug>`, where `<slug>` is the project's absolute path with **every non-alphanumeric character** replaced by `-` — `/`, `\` (Windows), drive `:`, `.`, space, `_`, `+`, and so on all collapse to `-`, while case is preserved (e.g. `/home/you/my.app` → `-home-you-my-app`, `C:\Users\you\repo` → `C--Users-you-repo`). Very long paths are truncated with a hash suffix.
 
-Without `-p`, `claude-review` derives the project from your current directory: it forward-encodes the cwd, and if that misses, falls back to finding the project whose transcripts record a matching `cwd` — so a dotted or spaced path still resolves. Pass `-p` to review a project you're not `cd`'d into; it accepts either a `<slug>` or an absolute project path. If your `~/.claude` lives elsewhere, set `CLAUDE_CONFIG_DIR`.
+Without `-p`, `claude-review` derives the project from your current directory: it forward-encodes the cwd, and if that misses (a very long path, or an encoding quirk), falls back to finding the project whose transcripts record a matching `cwd` — so it resolves either way. Pass `-p` to review a project you're not `cd`'d into; it accepts either a `<slug>` or an absolute project path. If your `~/.claude` lives elsewhere, set `CLAUDE_CONFIG_DIR`.
 
 This slug encoding is undocumented and reverse-engineered, so if one ever mismatches, the surest fix is `ls ~/.claude/projects/` and pass the literal directory name with `-p`.
 

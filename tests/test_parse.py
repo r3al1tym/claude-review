@@ -300,14 +300,18 @@ def test_oneline_handles_none():
 # _encode_path is pure (no filesystem) and takes an already-absolute path, so the
 # same assertions hold on Linux, macOS, AND Windows runners — this is the row of
 # the compat matrix that the OS matrix in CI is meant to keep honest.
+# The rule mirrors Claude Code's gM(): EVERY non-alphanumeric -> '-', case kept.
 @pytest.mark.parametrize("abs_path,slug", [
-    # POSIX: '/' and '.' both collapse to '-' (the original bug missed '.')
     ("/home/u/myrepo", "-home-u-myrepo"),
-    ("/home/u/my.app", "-home-u-my-app"),
+    ("/home/u/my.app", "-home-u-my-app"),                            # '.' -> '-'
     ("/home/u/repo/.claude/skills", "-home-u-repo--claude-skills"),  # '.claude' -> '--claude'
     ("/home/u/a project", "-home-u-a-project"),                      # space -> '-'
-    # underscores and digits are PRESERVED (the regression we avoided)
-    ("/home/u/my_repo2", "-home-u-my_repo2"),
+    # EVERY non-alphanumeric collapses — incl. '_', '+', '~', '@', parens (matches
+    # Claude Code; the earlier "underscore preserved" assumption was WRONG).
+    ("/home/u/my_repo2", "-home-u-my-repo2"),
+    ("/home/u/node_modules/x", "-home-u-node-modules-x"),
+    ("/home/u/a+b/c~d", "-home-u-a-b-c-d"),
+    ("/home/u/My.App_v2", "-home-u-My-App-v2"),                      # case preserved
     # Windows: backslash separators + drive ':' both map to '-'
     (r"C:\Users\you\repo", "C--Users-you-repo"),
     (r"C:\Users\a b\my.app", "C--Users-a-b-my-app"),
@@ -320,6 +324,7 @@ def test_encode_cwd_matches_real_machine_rule(monkeypatch):
     # encode_cwd runs abspath on THIS OS; on POSIX an absolute path is unchanged.
     monkeypatch.setattr(cr.os.path, "abspath", lambda p: p)
     assert cr.encode_cwd("/home/u/my.app") == "-home-u-my-app"
+    assert cr.encode_cwd("/home/u/my_repo") == "-home-u-my-repo"   # '_' collapses too
 
 
 def test_resolve_proj_explicit_slug_joins_under_proj_root():

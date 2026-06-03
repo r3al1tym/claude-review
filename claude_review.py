@@ -20,16 +20,17 @@ In the review view:
   s          switch session (back to picker)
   r          refresh now (also unfreezes)  ·  q  quit
 
-Project slug: Claude Code stores transcripts under ~/.claude/projects/<slug>,
-where <slug> is the project's absolute path with path punctuation collapsed to
-'-' — every '/', '\\' (Windows), drive ':', '.', and space becomes '-'
-(e.g. /home/you/my.app -> -home-you-my-app, C:\\Users\\you\\repo -> C--Users-you-repo).
-This encoding is undocumented/reverse-engineered, so the surest fix if a slug
-ever mismatches is to `ls ~/.claude/projects/` and pass the literal dir name with
--p. With no -p, claude-review derives the project from your current directory:
-it forward-encodes the cwd, and if that misses, finds the project whose
-transcripts record a matching cwd. Set CLAUDE_CONFIG_DIR to point at a relocated
-~/.claude.
+Project slug: by default Claude Code stores transcripts under
+~/.claude/projects/<slug>, where <slug> is the project's absolute path with EVERY
+non-alphanumeric character replaced by '-' (so '/', '\\', drive ':', '.', space,
+'_', '+', etc. all become '-'; case is kept) — e.g. /home/you/my.app ->
+-home-you-my-app, C:\\Users\\you\\repo -> C--Users-you-repo. Very long paths are
+truncated with a hash suffix. This encoding is reverse-engineered, so the surest
+fix if a slug ever mismatches is to `ls ~/.claude/projects/` and pass the literal
+dir name with -p. With no -p, claude-review derives the project from your current
+directory: it forward-encodes the cwd, and if that misses (long path, or an
+encoding quirk), finds the project whose transcripts record a matching cwd. Set
+CLAUDE_CONFIG_DIR to point at a relocated ~/.claude.
 """
 import sys, os, re, json, glob, time, shutil
 
@@ -590,20 +591,34 @@ def review(path, rawin):
 
 
 # ----------------------------------------------------------------------------- main
+# Mirror Claude Code's slug cap: if the encoded path exceeds this, CC truncates
+# and appends a hash of the ORIGINAL path. We can't reproduce CC's non-portable
+# hash, so beyond this length the forward-encode can't match — the cwd-scan
+# fallback in resolve_proj() takes over (it reads the recorded cwd, no encoding).
+# Value taken from the CC bundle (gM(): `if($.length<=200)`).
+_SLUG_MAX = 200
+
+
 def _encode_path(abs_path):
-    """Collapse path punctuation to '-' the way Claude Code does: normalize
-    Windows '\\' to '/', then map '/', '.', drive ':' and space to '-'. Pure (no
-    filesystem access) and expects an already-absolute path, so it encodes both
-    POSIX and Windows inputs deterministically on any OS — which is what makes it
-    unit-testable cross-platform. Underscores and alphanumerics are PRESERVED (CC
-    keeps them), so we replace a fixed punctuation class, never a broad
-    [^A-Za-z0-9]."""
-    return re.sub(r"[/.: ]", "-", abs_path.replace("\\", "/"))
+    """Encode an absolute path to its ~/.claude/projects/<slug> directory name,
+    mirroring Claude Code's encoder (verified against the CC binary, gM()):
+    EVERY non-alphanumeric character becomes '-' (so '/', '\\', ':', '.', space,
+    AND '_', '+', '~', parens, etc. all collapse) — case is preserved.
+
+    Pure (no filesystem access) and expects an already-absolute path, so it
+    encodes both POSIX and Windows inputs deterministically on any OS, which
+    makes it unit-testable cross-platform.
+
+    NOTE: CC caps the slug at 200 chars (then truncates + appends a hash of the
+    original path). That hash isn't portably reproducible, so for very long paths
+    this returns the un-truncated encode, which WON'T match on disk — resolve_proj
+    then falls back to the cwd-scan, which is exact regardless of length."""
+    return re.sub(r"[^A-Za-z0-9]", "-", abs_path)
 
 
 def encode_cwd(path):
-    """Slug for a path on THIS OS. Verified on POSIX that '/' and '.' both map to
-    '-' (C:\\Users\\x -> C--Users-x on Windows)."""
+    """Slug for a path on THIS OS (e.g. /home/u/my.app -> -home-u-my-app;
+    C:\\Users\\x -> C--Users-x on Windows — '\\' and ':' are non-alphanumeric)."""
     return _encode_path(os.path.abspath(path))
 
 
