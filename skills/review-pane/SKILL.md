@@ -59,10 +59,13 @@ Read the final line:
 - **A different session they describe** ("the one about the deploy"): run
   `claude-review -l` (lists `● id  age  model  first-prompt`), match on the prompt
   text, take the 8-char id.
-- **A different project**: sessions are per-project. Pass `-p <slug>` (slug = the
-  project's absolute path with every `/` → `-`, e.g. `/home/u/repo` →
-  `-home-u-repo`); absolute paths like `-p "$PWD/examples"` also work. Confirm
-  with `claude-review -l -p <slug>` if unsure.
+- **A different project**: sessions are per-project. **Don't hand-construct the
+  slug** — the encoding collapses several characters (`/`, `.`, space, `\`, drive
+  `:`) to `-`, so a guessed slug often misses. Instead pass `-p` an **absolute
+  project path** and let the tool encode it: `-p "$PWD/examples"`, or
+  `-p /home/u/some.repo`. If you must use a slug, copy the literal directory name
+  from `ls ~/.claude/projects/` rather than building it. Confirm with
+  `claude-review -l -p <path-or-slug>` if unsure.
 - **Env var empty / ambiguous**: don't guess — tell them to run bare
   `claude-review` (interactive picker) or run `claude-review -l` and present the
   choices.
@@ -86,7 +89,12 @@ the view while Claude keeps working · `s` switches session · `q` quits.
 
 ## Notes
 
-- Read-only and offline — only reads transcript files under `~/.claude/projects`.
+- Read-only and offline — only reads transcript files under `~/.claude/projects`
+  (or `$CLAUDE_CONFIG_DIR/projects` if that env var relocates `~/.claude`).
 - Refreshes in place as this session works; no need to relaunch per turn.
 - Windows Terminal / tmux: just give the command — let the user place the pane;
   don't try to spawn panes for them.
+- **Platform**: the interactive TUI needs a POSIX terminal — Linux, macOS, and
+  **Windows via WSL** all work. On **native Windows** (cmd/PowerShell) the TUI
+  won't run; it exits with a clear "use WSL" message (`-l`/`-V`/`-h` still work).
+  If the user is on native Windows, tell them to run claude-review inside WSL.
