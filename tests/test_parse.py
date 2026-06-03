@@ -249,9 +249,12 @@ def test_resolve_proj_derives_slug_from_cwd(monkeypatch, tmp_path):
     monkeypatch.setattr(cr, "PROJ_ROOT", str(tmp_path))
     here = tmp_path / "work"
     here.mkdir()
-    slug = cr._encode_path(str(here.resolve()))
+    # Resolve ONCE up front: on Windows Path.resolve()/abspath call os.getcwd()
+    # internally, so a getcwd patch that itself calls resolve() recurses forever.
+    here_abs = str(here.resolve())
+    slug = cr._encode_path(here_abs)
     (tmp_path / slug).mkdir()
-    monkeypatch.setattr(cr.os, "getcwd", lambda: str(here.resolve()))
+    monkeypatch.setattr(cr.os, "getcwd", lambda: here_abs)
     assert cr.resolve_proj(None) == cr.os.path.join(str(tmp_path), slug)
 
 
