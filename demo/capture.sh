@@ -28,7 +28,7 @@ echo "captured $(ls frames/*.png | wc -l) frames"
 
 # assemble GIF with a shared optimal palette
 ffmpeg -y -framerate $FPS -i frames/f%04d.png \
-  -vf "scale=1040:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=full[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3" \
+  -vf "scale=1040:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=200:stats_mode=full[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3" \
   -loop 0 ../docs/demo.gif >/dev/null 2>&1
 rm -rf frames
 echo "wrote ../docs/demo.gif ($(du -h ../docs/demo.gif | cut -f1))"

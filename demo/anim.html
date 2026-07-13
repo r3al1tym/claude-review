@@ -9,7 +9,7 @@
   --term:#15140f;            /* one terminal bg, both panes (tmux split) */
   --content:#ece9e1;         /* full-bright answer text */
   --g85:#d8d6cf; --g70:#b1aea5; --g62:#9b978d; --g50:#7f7b71; --g37:#5d5a52; --g27:#46433d;
-  --sep:#565249;             /* the vertical pane separator — clearly visible, still muted */
+  --sep:#7d776a;             /* the vertical pane separator — bright enough to survive GIF palette quantization */
   --cyan:#46d4d4;            /* the ONE colour — frozen only */
   --cc-dot:#6f9f6f;          /* claude-code tool bullet (muted green) */
 }
@@ -29,11 +29,11 @@ html,body{background:#070707;
 .btitle{display:flex;align-items:center;justify-content:center;overflow:hidden;
   white-space:nowrap;min-width:0;color:var(--g50);font-size:12px}
 .btitle b{color:var(--g70);font-weight:500}
-.btdiv{width:1px;background:var(--sep)}   /* continues the pane separator up through the bar */
+.btdiv{width:2px;background:var(--sep)}   /* continues the pane separator up through the bar */
 
 .split{display:flex;height:592px}
 .pane{flex:1;min-width:0;overflow:hidden;position:relative;font-size:12.5px;line-height:1.6}
-.vdiv{width:1px;background:var(--sep)}     /* the vertical separator between the two panes */
+.vdiv{width:2px;background:var(--sep)}     /* the vertical separator between the two panes (2px so GIF dithering can't erase it) */
 
 /* ---------- LEFT : Claude Code, busy back-and-forth ---------- */
 .cc{display:flex;flex-direction:column}
