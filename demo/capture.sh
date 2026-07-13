@@ -11,7 +11,7 @@ cd "$(dirname "$0")"
 CHROME="${CHROME:-$(command -v chromium-browser || command -v chromium || command -v google-chrome)}"
 [ -n "$CHROME" ] || { echo "no chromium/chrome found; set CHROME=..."; exit 1; }
 
-FPS=13; DUR=13.8
+FPS=13; DUR=13.9
 rm -rf frames && mkdir -p frames
 N=$(python3 -c "print(int($DUR*$FPS))")
 echo "capturing $N frames @ ${FPS}fps"

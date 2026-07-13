@@ -9,6 +9,7 @@
   --term:#15140f;            /* one terminal bg, both panes (tmux split) */
   --content:#ece9e1;         /* full-bright answer text */
   --g85:#d8d6cf; --g70:#b1aea5; --g62:#9b978d; --g50:#7f7b71; --g37:#5d5a52; --g27:#46433d;
+  --sep:#565249;             /* the vertical pane separator — clearly visible, still muted */
   --cyan:#46d4d4;            /* the ONE colour — frozen only */
   --cc-dot:#6f9f6f;          /* claude-code tool bullet (muted green) */
 }
@@ -19,15 +20,20 @@ html,body{background:#070707;
 .wrap{width:1010px;margin:14px auto}
 .frame{border-radius:11px;overflow:hidden;background:var(--term);
   box-shadow:0 26px 70px -14px rgba(0,0,0,.75),0 0 0 1px rgba(255,255,255,.045)}
-.bar{height:34px;background:#211f1a;display:flex;align-items:center;padding:0 13px}
-.bar .l{display:flex;gap:8px}
-.bar .l i{width:11px;height:11px;border-radius:50%}
-.bar .r{background:#f25f57}.bar .y{background:#fbbe2e}.bar .g{background:#28c93f}
-.bar .t{flex:1;text-align:center;color:var(--g50);font-size:12px}
-.bar .t b{color:var(--g70);font-weight:500}
+
+/* ---- title bar: traffic lights + a per-pane centered title on each side ---- */
+.bar{height:34px;background:#211f1a;display:flex;position:relative}
+.lights{position:absolute;left:13px;top:0;height:34px;display:flex;align-items:center;gap:8px;z-index:2}
+.lights i{width:11px;height:11px;border-radius:50%}
+.lights .r{background:#f25f57}.lights .y{background:#fbbe2e}.lights .g{background:#28c93f}
+.btitle{display:flex;align-items:center;justify-content:center;overflow:hidden;
+  white-space:nowrap;min-width:0;color:var(--g50);font-size:12px}
+.btitle b{color:var(--g70);font-weight:500}
+.btdiv{width:1px;background:var(--sep)}   /* continues the pane separator up through the bar */
+
 .split{display:flex;height:592px}
 .pane{flex:1;min-width:0;overflow:hidden;position:relative;font-size:12.5px;line-height:1.6}
-.vdiv{width:1px;background:var(--g27)}
+.vdiv{width:1px;background:var(--sep)}     /* the vertical separator between the two panes */
 
 /* ---------- LEFT : Claude Code, busy back-and-forth ---------- */
 .cc{display:flex;flex-direction:column}
@@ -70,6 +76,7 @@ html,body{background:#070707;
 .cr .sh .cur{display:inline-block;width:7px;height:14px;background:var(--g85);transform:translateY(2px)}
 /* claude-review TUI */
 .cr .rule{display:flex;align-items:center;gap:8px;padding:0 15px;color:var(--g27)}
+.cr .rule .ln{flex:1;border-top:1px solid var(--g27)}
 .cr .badge{color:var(--g70);background:var(--g27);border-radius:3px;padding:1px 8px;font-size:12px}
 .cr .body{flex:1;overflow:hidden;padding:15px 18px 0 30px}
 /* claude-review markdown: H1 bold+underline+CENTERED, H3 bold; borderless teal table */
@@ -99,8 +106,12 @@ html,body{background:#070707;
 </style></head>
 <body>
 <div class="wrap"><div class="frame">
-  <div class="bar"><div class="l"><i class="r"></i><i class="y"></i><i class="g"></i></div>
-    <div class="t" id="barTitle"><b>claude</b></div></div>
+  <div class="bar">
+    <div class="lights"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+    <div class="btitle" id="btLeft"><b>claude</b></div>
+    <div class="btdiv" id="btDiv"></div>
+    <div class="btitle" id="btRight"></div>
+  </div>
   <div class="split">
     <div class="pane cc" id="ccPane"><div class="scroll" id="ccScroll"></div>
       <div class="inp" id="ccInp"></div>
@@ -115,25 +126,26 @@ html,body{background:#070707;
 // ---- deterministic timeline (seconds) ----
 // The full story, faithful to how you'd actually reach for claude-review:
 //   0.0  a Claude Code session, single full-width pane, already mid-work
-//   1.4  you SPLIT the terminal — a second pane slides in (tmux)
-//   1.7  you type `claude-review` in the new pane and hit enter
-//   2.9  it attaches to the newest session and pins its LATEST response
-//   4.4  back on the left you ask a fresh question; the pane resets to the top,
+//   1.3  you SPLIT the terminal — a second pane slides smoothly in (eased) from the right
+//   2.0  you type `claude-review` in the new pane and hit enter
+//   3.8  it attaches to the newest session and pins its LATEST response
+//   4.6  back on the left you ask a fresh question; the pane resets to the top,
 //        shows a real "working" placeholder, then renders the whole answer at once
-//  10.0  you press `f` — FREEZE holds your read while Claude keeps working left
+//  10.1  you press `f` — FREEZE holds your read while Claude keeps working left
 // The review pane re-renders the WHOLE current turn on file change; it never
 // typewriters. Freeze is the one moment colour enters (cyan).
 var T={
-  splitT:1.4,        // terminal splits; right pane appears
-  cmdStart:1.7,      // start typing `claude-review`
-  cmdEnter:2.9,      // command submitted
-  attachedT:3.6,     // attached → shows the pinned latest response
-  askStart:4.4,      // start typing the new prompt on the LEFT
-  askT:5.7,          // new prompt submitted
-  answerT:8.2,       // the review renders (both panes)
-  freezeT:10.0,      // freeze toggled ON (highlighted)
-  buryAskT:10.2,     // left moves on
-  endT:13.8
+  splitT:1.3,        // terminal splits; right pane begins its slide-in
+  slideDur:0.65,     // eased slide-in duration
+  cmdStart:2.0,      // start typing `claude-review` (after the pane has settled)
+  cmdEnter:3.2,      // command submitted
+  attachedT:3.8,     // attached → shows the pinned latest response
+  askStart:4.6,      // start typing the new prompt on the LEFT
+  askT:5.9,          // new prompt submitted
+  answerT:8.3,       // the review renders (both panes)
+  freezeT:10.1,      // freeze toggled ON (highlighted)
+  buryAskT:10.3,     // left moves on
+  endT:13.9
 };
 var NEW_PROMPT="give me the full cutover review — go / no-go, with risks and blockers";
 var CMD="claude-review";
@@ -204,26 +216,27 @@ var L=[
  {a:-1, h:'<div class="a">Two stand out:<div class="bul">• no rollback rehearsal</div><div class="bul">• token format <b>not</b> backward-compatible</div></div>'},
  // new ask (typed into the input box during askStart..askT, then lands here)
  {a:T.askT, h:'<div class="e u"><span class="c">❯</span> '+NEW_PROMPT+'</div>'},
- {a:6.0, h:'<div class="e tool"><span class="d">●</span> Read(migration-plan.md)</div>'},
- {a:6.4, h:'<div class="e tool"><span class="d">●</span> Grep("rollback|rehearsal", src/)</div><div class="e res">  └─ 7 matches across 5 files</div>'},
- {a:7.0, h:'<div class="e tool"><span class="d">●</span> Read(auth/session-store.ts)</div><div class="e res">  └─ Read 318 lines</div>'},
- {a:7.5, h:'<div class="e think">✻ Thinking… weighing severity vs. blast radius…</div>'},
- {a:7.9, h:'<div class="e tool"><span class="d">●</span> Read(data-layer/cutover.ts)</div>'},
+ {a:6.2, h:'<div class="e tool"><span class="d">●</span> Read(migration-plan.md)</div>'},
+ {a:6.6, h:'<div class="e tool"><span class="d">●</span> Grep("rollback|rehearsal", src/)</div><div class="e res">  └─ 7 matches across 5 files</div>'},
+ {a:7.1, h:'<div class="e tool"><span class="d">●</span> Read(auth/session-store.ts)</div><div class="e res">  └─ Read 318 lines</div>'},
+ {a:7.6, h:'<div class="e think">✻ Thinking… weighing severity vs. blast radius…</div>'},
+ {a:8.0, h:'<div class="e tool"><span class="d">●</span> Read(data-layer/cutover.ts)</div>'},
  // the SAME content renders on the left too (Claude Code's own box-bordered
  // table) — then gets buried by what follows
  {a:T.answerT, h:'<div class="a review">'+review('cc')+'</div>'},
- {a:9.0, h:'<div class="e tool"><span class="d">●</span> Read(config/rate-limits.ts)</div><div class="e res">  └─ Read 64 lines</div>'},
+ {a:9.1, h:'<div class="e tool"><span class="d">●</span> Read(config/rate-limits.ts)</div><div class="e res">  └─ Read 64 lines</div>'},
  // after freeze the left keeps moving — the whole point of freezing the right
  {a:T.buryAskT, h:'<div class="e u"><span class="c">❯</span> ok — which one is riskiest to ship first?</div>'},
- {a:10.7, h:'<div class="e tool"><span class="d">●</span> Read(rate-limiter.ts)</div><div class="e res">  └─ Read 92 lines</div>'},
- {a:11.3, h:'<div class="e think">✻ Thinking… the data-layer cutover has the widest blast radius…</div>'},
- {a:11.9, h:'<div class="e tool"><span class="d">●</span> Grep("rateLimit", src/)</div><div class="e res">  └─ 12 matches</div>'},
- {a:12.5, h:'<div class="e tool"><span class="d">●</span> Read(config/limits.ts)</div>'},
- {a:13.1, h:'<div class="e think">✻ Thinking…</div>'}
+ {a:10.8, h:'<div class="e tool"><span class="d">●</span> Read(rate-limiter.ts)</div><div class="e res">  └─ Read 92 lines</div>'},
+ {a:11.4, h:'<div class="e think">✻ Thinking… the data-layer cutover has the widest blast radius…</div>'},
+ {a:12.0, h:'<div class="e tool"><span class="d">●</span> Grep("rateLimit", src/)</div><div class="e res">  └─ 12 matches</div>'},
+ {a:12.6, h:'<div class="e tool"><span class="d">●</span> Read(config/limits.ts)</div>'},
+ {a:13.2, h:'<div class="e think">✻ Thinking…</div>'}
 ];
 
 function clamp(x,a,b){return x<a?a:(x>b?b:x);}
 function blink(t){return Math.floor(t*1.6)%2===0;}
+function easeInOut(x){return x<0.5 ? 4*x*x*x : 1-Math.pow(-2*x+2,3)/2;}
 
 // The shell the user sees right after splitting: a prompt, the typed command,
 // then a one-line attach notice before the TUI takes over.
@@ -271,18 +284,25 @@ function tuiView(t,cr){
 
 function renderRight(t){
   var cr=document.getElementById('cr'), left=document.getElementById('ccPane'), vd=document.getElementById('vdiv'),
-      title=document.getElementById('barTitle');
-  // split geometry: right pane slides in over ~0.35s
-  var sp=clamp((t-T.splitT)/0.35,0,1);
-  left.style.flex='0 0 '+(100-50*sp)+'%';
-  cr.style.flex  ='0 0 '+(50*sp)+'%';
-  vd.style.display = sp>0?'block':'none';
-  cr.style.display = sp>0?'flex':'none';
+      btL=document.getElementById('btLeft'), btR=document.getElementById('btRight'), btD=document.getElementById('btDiv');
 
-  // window title tracks the split: one pane → shell → claude-review
-  if(t<T.splitT)            title.innerHTML='<b>claude</b>';
-  else if(t<T.attachedT)    title.innerHTML='<b>claude</b>&nbsp;&nbsp;│&nbsp;&nbsp;zsh';
-  else                      title.innerHTML='<b>claude</b>&nbsp;&nbsp;│&nbsp;&nbsp;<b>claude-review</b>';
+  // eased split geometry: the right pane slides smoothly in from the right
+  var sp = easeInOut(clamp((t-T.splitT)/T.slideDur,0,1));
+  var lf=100-50*sp, rf=50*sp, showR = sp>0.02;
+  left.style.flex ='0 0 '+lf+'%';
+  cr.style.flex   ='0 0 '+rf+'%';
+  cr.style.transform='translateX('+((1-sp)*30).toFixed(1)+'px)';  // slide in from the right edge
+  cr.style.opacity  =clamp(sp*1.6,0,1).toFixed(3);
+  cr.style.display  = showR?'flex':'none';
+  vd.style.display  = showR?'block':'none';
+
+  // title bars: each title centered over ITS pane (tracks the split ratio); the
+  // bar divider lines up with the pane separator so it reads as one line.
+  btL.style.flex='1 1 '+lf+'%';
+  btR.style.flex='1 1 '+rf+'%';
+  btR.style.display = showR?'flex':'none';
+  btD.style.display = showR?'block':'none';
+  btR.innerHTML = (t<T.attachedT) ? 'zsh' : '<b>claude-review</b>';
 
   if(t<T.splitT){ cr.innerHTML=''; return; }
   if(t<T.attachedT){ cr.className='pane cr'; cr.innerHTML=shellView(t); return; }
