@@ -286,15 +286,17 @@ function renderRight(t){
   var cr=document.getElementById('cr'), left=document.getElementById('ccPane'), vd=document.getElementById('vdiv'),
       btL=document.getElementById('btLeft'), btR=document.getElementById('btRight'), btD=document.getElementById('btDiv');
 
-  // eased split geometry: the right pane slides smoothly in from the right
+  // eased split geometry: the separator is the LEADING EDGE of the split. The
+  // moment the terminal splits, the divider appears at the right and travels
+  // left as the new pane opens behind it — so the separator is visible for the
+  // entire slide, never lagging the pane content.
   var sp = easeInOut(clamp((t-T.splitT)/T.slideDur,0,1));
-  var lf=100-50*sp, rf=50*sp, showR = sp>0.02;
+  var lf=100-50*sp, rf=50*sp, showR = t>=T.splitT;
   left.style.flex ='0 0 '+lf+'%';
   cr.style.flex   ='0 0 '+rf+'%';
-  cr.style.transform='translateX('+((1-sp)*30).toFixed(1)+'px)';  // slide in from the right edge
-  cr.style.opacity  =clamp(sp*1.6,0,1).toFixed(3);
+  cr.style.opacity  =clamp(sp*2.2,0,1).toFixed(3);   // content fades in behind the divider
   cr.style.display  = showR?'flex':'none';
-  vd.style.display  = showR?'block':'none';
+  vd.style.display  = showR?'block':'none';           // separator on from the first split frame
 
   // title bars: each title centered over ITS pane (tracks the split ratio); the
   // bar divider lines up with the pane separator so it reads as one line.
