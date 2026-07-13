@@ -25,7 +25,7 @@ Then just ask Claude *"open a review pane for this session"* — it resolves the
 ### Or install the CLI directly
 
 ```bash
-pipx install git+https://github.com/r3al1tym/claude-review@v0.3.0
+pipx install git+https://github.com/r3al1tym/claude-review@v0.4.0
 claude-review
 ```
 
@@ -66,6 +66,13 @@ To try the UI with no live session, a sample transcript ships in the repo: `clau
 - **Plan/tasks are best-effort.** They depend on Claude Code emitting the relevant transcript events.
 - **No horizontal scroll.** Wide tables wrap to fit rather than scroll sideways.
 - **Transcript format.** Parses Claude Code's current JSONL layout; a future format change may need a parser update — issues/PRs welcome.
+
+## Contributing
+
+Small, single-file, read-only by design — see [CONTRIBUTING.md](CONTRIBUTING.md)
+for the dev setup and the ground rules. Security posture and how to report a
+vulnerability are in [SECURITY.md](SECURITY.md); the project follows a
+[Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 

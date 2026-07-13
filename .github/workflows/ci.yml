@@ -17,7 +17,7 @@ jobs:
         # degrade path honest. (The interactive TUI needs a tty and can't run in
         # CI on any OS — that stays manual.)
         os: [ubuntu-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
         include:
           - os: macos-latest
             python-version: "3.12"
@@ -54,6 +54,32 @@ jobs:
       - name: Check the personal email never ships in metadata
         run: |
           ! unzip -p dist/*.whl '*/METADATA' | grep -i 'gmail' || (echo "personal email leaked into wheel metadata" && exit 1)
+
+  # Guard the documented install: every install path (README, setup.sh, SKILL.md)
+  # pins @v<pyproject-version>, so that tag MUST exist on origin or a fresh
+  # `pipx install ...@vX.Y.Z` 404s. This job fails the moment the version is
+  # bumped without a matching pushed tag — the exact regression that shipped a
+  # broken install once. (Skipped on the release tag build itself, where the tag
+  # is being created.)
+  release-tag-exists:
+    runs-on: ubuntu-latest
+    if: github.ref_type != 'tag'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: The pinned release tag must exist
+        run: |
+          VER=$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' pyproject.toml | head -1)
+          echo "pyproject version: $VER"
+          if git ls-remote --exit-code --tags origin "refs/tags/v${VER}" >/dev/null 2>&1; then
+            echo "OK — tag v${VER} exists on origin"
+          else
+            echo "::error::pyproject version is $VER but tag v$VER is not pushed to origin."
+            echo "::error::Every documented install pins @v$VER, so it would 404. Run: git tag -a v$VER -m v$VER && git push origin v$VER"
+            exit 1
+          fi
 
   # Clean-room install test: prove a brand-new user can install from the
   # published source and resolve a freshly-seeded transcript — the stranger

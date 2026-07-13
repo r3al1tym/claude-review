@@ -4,6 +4,45 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — 2026-07-13
+
+Correctness and safety hardening for a wider audience. A review surface has to be
+trustworthy to *look at* and faithful to what actually happened in the session —
+this release closes gaps in both.
+
+### Fixed
+- **Terminal-escape safety.** Response, plan, and task text is now stripped of
+  control/escape bytes before rendering. A transcript can quote arbitrary content
+  (web-fetch output, file contents, tool results), and `rich` does not strip
+  `ESC` — so before this, merely *viewing* a session could drive the terminal or
+  rewrite the clipboard via OSC 52. The body is now sanitized like the picker
+  already was, keeping newlines and tabs so Markdown still renders.
+- **Resume / attachment / skill prompts are recognized.** `--continue` and
+  auto-compact resume ("Continue from where you left off."), skill invocations,
+  and image/attachment prompts arrive as a content *block-list*, not a bare
+  string. These now update the question and reset the view instead of leaving the
+  pane showing the previous turn's prompt against a stale answer.
+- **Task list reconstructed from the whole session, not the tail.** Task ids are
+  assigned from the first record, so counting them within the 500 KB tail window
+  could mark the wrong task done (or drop an update) in long sessions. Tasks are
+  now replayed over the entire file. The batch (`tasks` array) and subagent-spawn
+  `TaskCreate` shapes are handled, so neither miscounts ids nor injects a blank row.
+- **JSONL records no longer split on Unicode separators.** Parsing split on real
+  newlines only; `str.splitlines()` also breaks on U+2028/U+2029/U+0085 (which
+  Node does not escape), which could shatter a record and lose the response.
+- A malformed non-object line (or an explicit `"message": null`) is skipped
+  instead of crashing the whole picker/list.
+- `-s <prefix>` attaches to the most recently active matching session, not an
+  arbitrary one, when a prefix is ambiguous.
+- `list_sessions` tolerates a transcript deleted between listing and sorting.
+- `y` copy reports `too large to copy` past the OSC 52 size many terminals
+  silently truncate, instead of a false `copied`.
+
+### Changed
+- CI now sweeps Python 3.13 and fails the build if the release tag the docs pin
+  isn't pushed to origin (so a documented install can never 404). PyPI classifiers
+  list each supported Python version.
+
 ## [0.3.0] — 2026-06-03
 
 Mouse scroll and clipboard copy — a review surface should be easy to scroll and
@@ -40,9 +79,10 @@ so this is a recommended upgrade for all users.
 
 ### Fixed
 - **Project slug derivation** now mirrors Claude Code's real encoding: `/`, `.`,
-  space, `\` (Windows), and drive `:` all collapse to `-` (previously only `/`).
-  Projects under dotted/spaced paths (incl. nested `.claude`/`.config` dirs) no
-  longer fail with "no project dir". Underscores are preserved.
+  space, `\` (Windows), drive `:`, `_`, `+`, and every other non-alphanumeric
+  character all collapse to `-` (previously only `/`). Projects under
+  dotted/spaced/underscored paths (incl. nested `.claude`/`.config` dirs) no
+  longer fail with "no project dir".
 - Added an authoritative fallback that resolves the project by scanning
   transcripts for a matching recorded `cwd` — OS- and version-proof.
 - Native Windows: `--help`/`-l` no longer crash with `UnicodeEncodeError`
@@ -79,7 +119,7 @@ Initial release.
   paths) and absolute paths, plus the `--project=<value>` form.
 - A bundled sample transcript under `examples/` so the UI can be tried without
   Claude Code installed.
-- `review-pane` Claude Code skill (under `skill/`): say "open a review pane for
+- `review-pane` Claude Code skill (under `skills/review-pane/`): say "open a review pane for
   this session" and it resolves the session id and hands over the command,
   self-installing `claude-review` if missing.
 - Test suite over the parser/formatter core, and GitHub Actions CI across

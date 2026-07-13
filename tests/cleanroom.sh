@@ -20,7 +20,7 @@
 set -uo pipefail
 
 CRV_REPO="${CRV_REPO:-https://github.com/r3al1tym/claude-review}"
-CRV_REF="${CRV_REF:-v0.2.0}"
+CRV_REF="${CRV_REF:-v0.4.0}"
 
 say() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 ok()  { printf '  \033[1;32mPASS\033[0m %s\n' "$*"; }
@@ -50,7 +50,9 @@ claude-review -h >/dev/null 2>&1 && ok "-h (glyph encoding)" || bad "-h"
 say "3. seed a realistic transcript under a DOTTED project path"
 PROJDIR="$HOME/work/my.app"             # the '.' is the case that used to break
 mkdir -p "$PROJDIR"
-SLUG=$(python3 -c "import re,os;print(re.sub(r'[/.: ]','-',os.path.abspath('$PROJDIR')))")
+# mirror the real encoder exactly: EVERY non-alphanumeric -> '-' (not just a few
+# chars) so this seed stays correct for any path, not only ones with a dot/space.
+SLUG=$(python3 -c "import re,os;print(re.sub(r'[^A-Za-z0-9]','-',os.path.abspath('$PROJDIR')))")
 SDIR="$HOME/.claude/projects/$SLUG"; mkdir -p "$SDIR"
 UUID="00000000-clean-room-0000-000000000001"
 {

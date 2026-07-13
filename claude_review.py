@@ -8,7 +8,7 @@ plan, and task list in the other — without the scrollback noise.
 
   claude-review                 pick a session interactively, then review it
   claude-review -s <id-prefix>  attach directly to a session id (prefix ok)
-  claude-review -p <slug>       review a different project (see note below)
+  claude-review -p <path|slug>  review a different project (see note below)
   claude-review -l              list recent sessions and exit (no TUI)
   claude-review -V              print version and exit
   claude-review -h              this help
@@ -37,7 +37,7 @@ import sys, os, re, json, glob, time, shutil
 # Single source of truth for the version when running from a source checkout
 # (pip-installed runs read it from package metadata instead). Kept in sync with
 # pyproject.toml by a release-hygiene test.
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 # termios/tty/select are POSIX-only and only needed for the interactive TUI.
 # Imported lazily inside RawInput so that --help, --version, and -l still work
@@ -56,15 +56,28 @@ POLL = 0.25                   # input/refresh poll interval (s)
 
 
 # ----------------------------------------------------------------------------- parsing
+def _split_records(raw):
+    """Split decoded bytes into JSONL records on REAL newlines only.
+
+    str.splitlines() also breaks on U+2028, U+2029, U+0085, VT, FF, and FS/GS/RS
+    — none of which Node's JSON.stringify escapes — so a transcript line whose
+    text contains one would be shattered into invalid-JSON fragments and the turn
+    would render as "(no response yet)". Splitting on "\\n" alone avoids that.
+    The trailing element after a final newline is empty; drop it (and any blank
+    line) so callers get the same clean record list splitlines() used to give."""
+    text = raw.decode("utf-8", "replace")
+    return [ln.rstrip("\r") for ln in text.split("\n") if ln.rstrip("\r")]
+
+
 def tail_lines(path, nbytes=TAIL_BYTES):
-    """Read the last nbytes of a file, return complete lines (drop leading partial)."""
+    """Read the last nbytes of a file, return complete records (drop leading partial)."""
     try:
         with open(path, "rb") as fh:
             fh.seek(0, 2)
             size = fh.tell()
             fh.seek(max(0, size - nbytes))
             raw = fh.read()
-        lines = raw.decode("utf-8", "replace").splitlines()
+        lines = _split_records(raw)
         if size > nbytes and lines:
             lines = lines[1:]               # first line is probably truncated
         return lines
@@ -72,22 +85,123 @@ def tail_lines(path, nbytes=TAIL_BYTES):
         return []
 
 
+def all_lines(path):
+    """Every complete record of a file (see _split_records). Used for session-wide
+    state (tasks) that must be counted from the first record, not just the tail."""
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read()
+        return _split_records(raw)
+    except OSError:
+        return []
+
+
 def is_real_prompt(content):
-    """A genuine user prompt is a non-empty plain string that isn't a tool
-    result, command wrapper, or stdout echo (those start with '<')."""
-    return bool(isinstance(content, str) and content.strip()
-                and not content.lstrip().startswith("<"))
+    """A genuine user prompt is a non-empty plain string (or a content block-list
+    holding one) that isn't a tool result, command wrapper, or stdout echo (those
+    start with '<'). Resume/attachment/skill prompts arrive as a list of blocks."""
+    return _prompt_text(content) is not None
+
+
+def _prompt_text(content):
+    """The user-visible prompt text, or None if this content isn't a real prompt.
+    Handles both the plain-string form and the block-list form Claude Code emits
+    for --continue/auto-compact resume ("Continue from where you left off."),
+    skill invocations, and image/attachment prompts."""
+    def _clean(s):
+        s = s.strip() if isinstance(s, str) else ""
+        return s if (s and not s.lstrip().startswith("<")) else None
+    if isinstance(content, str):
+        return _clean(content)
+    if isinstance(content, list):
+        parts = []
+        for b in content:
+            if isinstance(b, dict) and b.get("type") == "text":
+                t = _clean(b.get("text"))
+                if t:
+                    parts.append(t)
+        return "\n".join(parts) or None
+    return None
+
+
+def _task_subject(inp):
+    """Subject line for a TaskCreate, or None to SKIP this call. Real transcripts
+    carry three TaskCreate shapes: the todo form ({"subject",...}), the batch form
+    ({"tasks": "<json array string>"}) handled separately by the caller, and a
+    subagent-spawn form ({"subagent_type","prompt",...}) that is NOT a todo-list
+    entry and must not inject a blank row."""
+    if "subagent_type" in inp:
+        return None
+    return inp.get("subject") or inp.get("content") or None
+
+
+def _reconstruct_tasks(lines):
+    """Replay TaskCreate/TaskUpdate over the WHOLE session to rebuild the task
+    list. Task ids are assigned sequentially from the first record (Claude Code's
+    "Task #N"), so this must count from the start of the file, not the tail window
+    — counting within the tail renumbers tasks and makes TaskUpdate mark the wrong
+    row (or none). Tasks are cheap, session-wide state, so a full scan is cheap
+    and correct."""
+    tasks = {}            # id -> {subject, status}
+    seq = 0
+    for ln in lines:
+        try:
+            o = json.loads(ln)
+        except Exception:
+            continue
+        if not isinstance(o, dict) or o.get("type") != "assistant":
+            continue
+        for b in (o.get("message") or {}).get("content", []) or []:
+            if not isinstance(b, dict) or b.get("type") != "tool_use":
+                continue
+            name = b.get("name")
+            inp = b.get("input", {}) or {}
+            if name == "TaskCreate":
+                # Batch form: input.tasks is a JSON string of {content,status,...}.
+                batch = inp.get("tasks")
+                if isinstance(batch, str):
+                    try:
+                        items = json.loads(batch)
+                    except Exception:
+                        items = []
+                    for it in items if isinstance(items, list) else []:
+                        if not isinstance(it, dict):
+                            continue
+                        seq += 1
+                        tasks[seq] = {"subject": it.get("content") or it.get("subject") or "",
+                                      "status": it.get("status") or "pending"}
+                    continue
+                subject = _task_subject(inp)
+                if subject is None:            # subagent spawn, not a todo — skip
+                    continue
+                seq += 1
+                tasks[seq] = {"subject": subject, "status": "pending"}
+            elif name == "TaskUpdate":
+                try:
+                    tid = int(inp.get("taskId"))
+                except (TypeError, ValueError):
+                    tid = None
+                if tid in tasks:
+                    st = inp.get("status")
+                    if st == "deleted":
+                        tasks.pop(tid, None)
+                    elif st:
+                        tasks[tid]["status"] = st
+                    if inp.get("subject"):
+                        tasks[tid]["subject"] = inp["subject"]
+    # surface the task list (pending/active/done) in id order
+    return [{"status": tasks[i]["status"], "content": tasks[i]["subject"]}
+            for i in sorted(tasks)] or None
 
 
 def parse_turn(path):
-    """Walk the tail and extract the CURRENT turn: the last real user prompt
-    and everything the assistant produced after it."""
+    """Extract the CURRENT turn: the last real user prompt and everything the
+    assistant produced after it (from the tail), plus the session-wide task list
+    (rebuilt from the whole file — see _reconstruct_tasks)."""
     q = None
     texts = []
     plan = None
     model = None
-    tasks = {}            # id -> {subject, status}, replayed from Task* tool calls
-    task_seq = 0
     assistant_seen = 0    # how many assistant records appeared in this tail
     parsed_ok = False     # did any assistant content block match our known schema
     for ln in tail_lines(path):
@@ -95,17 +209,21 @@ def parse_turn(path):
             o = json.loads(ln)
         except Exception:
             continue
+        if not isinstance(o, dict):
+            continue
         t = o.get("type")
         if t == "user":
-            c = o.get("message", {}).get("content")
-            if is_real_prompt(c):
-                q = c
+            c = (o.get("message") or {}).get("content")
+            pt = _prompt_text(c)
+            if pt is not None:
+                q = pt
                 texts, plan = [], None              # new turn resets (tasks persist)
         elif t == "assistant":
             assistant_seen += 1
-            m = o.get("message", {})
+            m = o.get("message") or {}
             model = m.get("model") or model
-            for b in m.get("content", []) or []:
+            content = m.get("content")
+            for b in content if isinstance(content, list) else []:
                 if not isinstance(b, dict):
                     continue
                 # any recognized block type means the schema still parses — even
@@ -114,38 +232,13 @@ def parse_turn(path):
                     parsed_ok = True
                 if b.get("type") == "text" and b.get("text", "").strip():
                     texts.append(b["text"])
-                elif b.get("type") == "tool_use":
-                    name = b.get("name")
-                    inp = b.get("input", {}) or {}
-                    if name == "ExitPlanMode":
-                        plan = inp.get("plan")
-                    # Task list is session-wide state, reconstructed by replaying
-                    # TaskCreate/TaskUpdate. IDs are assigned sequentially (the
-                    # result says "Task #N"), so creation order == id.
-                    elif name == "TaskCreate":
-                        task_seq += 1
-                        tasks[task_seq] = {"subject": inp.get("subject", ""),
-                                           "status": "pending"}
-                    elif name == "TaskUpdate":
-                        try:
-                            tid = int(inp.get("taskId"))
-                        except (TypeError, ValueError):
-                            tid = None
-                        if tid in tasks:
-                            st = inp.get("status")
-                            if st == "deleted":
-                                tasks.pop(tid, None)
-                            elif st:
-                                tasks[tid]["status"] = st
-                            if inp.get("subject"):
-                                tasks[tid]["subject"] = inp["subject"]
+                elif b.get("type") == "tool_use" and b.get("name") == "ExitPlanMode":
+                    plan = (b.get("input") or {}).get("plan")
     try:
         mtime = os.path.getmtime(path)
     except OSError:
         mtime = 0
-    # surface the task list (pending/active/done) in id order
-    tasklist = [{"status": tasks[i]["status"], "content": tasks[i]["subject"]}
-                for i in sorted(tasks)] or None
+    tasklist = _reconstruct_tasks(all_lines(path))
     return {
         "path": path,
         "id": os.path.basename(path).replace(".jsonl", ""),
@@ -166,6 +259,25 @@ def oneline(s):
     would corrupt the terminal (a prompt may contain pasted ANSI), keep spaces.
     rich's Text does NOT strip these, so both the picker and -l need it."""
     return "".join(c if (c.isprintable() or c == " ") else " " for c in (s or ""))
+
+
+# Control/escape bytes to strip from any transcript-derived text before rendering.
+# A transcript can quote arbitrary attacker-controlled content (web-fetch output,
+# file contents, tool results), and rich.Markdown does NOT strip ESC — so an
+# unsanitized body could smuggle terminal escape sequences that drive the terminal
+# or, via OSC 52, silently rewrite the clipboard just by being VIEWED. That would
+# invert claude-review's whole "read-only, safe to look at" posture. We drop C0
+# controls (0x00-0x1F) and DEL (0x7F) but KEEP \n and \t so markdown still renders,
+# and drop the C1 range (0x80-0x9F), which some terminals treat as control intros.
+_CTRL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def sanitize_body(s):
+    """Strip terminal control/escape bytes from a body destined for the pager,
+    preserving newlines and tabs so Markdown structure survives. See _CTRL_RE."""
+    if not s:
+        return s
+    return _CTRL_RE.sub("", s)
 
 
 def short_model(m):
@@ -205,18 +317,29 @@ def _emit(seq):
         pass
 
 
+# Some terminals silently drop an OSC 52 clipboard payload past a size cap
+# (xterm's default is 8 KB of base64; many emulators are more generous but still
+# bounded). Rather than flash a false "copied", warn past a conservative ceiling.
+_OSC52_SOFT_LIMIT = 100_000        # base64 chars; ~74 KB of source text
+
+
 def copy_to_clipboard(text):
     """Copy text to the terminal clipboard via OSC 52 — a pure stdout escape
     sequence, so it spawns no subprocess, writes no file, and uses no network
     (preserving claude-review's read-only posture) and works over SSH. The
     terminal must support OSC 52 (most modern ones do; some require opt-in).
-    Returns False for empty text so the caller can flash a useful message."""
+
+    Returns "ok" on emit, "empty" for nothing to copy, or "too_large" when the
+    payload exceeds a size many terminals silently truncate — so the caller can
+    flash an honest message instead of a false confirmation."""
     if not text:
-        return False
+        return "empty"
     import base64
     b64 = base64.b64encode(text.encode("utf-8", "replace")).decode("ascii")
+    if len(b64) > _OSC52_SOFT_LIMIT:
+        return "too_large"
     _emit(f"\x1b]52;c;{b64}\x07")
-    return True
+    return "ok"
 
 
 # ----------------------------------------------------------------------------- raw input
@@ -364,7 +487,9 @@ def tasks_renderable(tasks):
     for td in tasks or []:
         sym, st = style_for.get(td.get("status"), ("○", "grey62"))
         body.append(f" {sym}  ", style=st)
-        body.append((td.get("content") or "") + "\n", style=st)
+        # task subjects are transcript-derived — strip control/escape bytes (a
+        # single-line surface, so collapse newlines too), like the picker does.
+        body.append(oneline(td.get("content") or "") + "\n", style=st)
     return body
 
 
@@ -372,9 +497,9 @@ def build_surfaces(turn):
     """Ordered list of (label, renderable) for whatever this turn produced."""
     out = []
     if turn["plan"]:
-        out.append(("plan", Markdown(turn["plan"])))
+        out.append(("plan", Markdown(sanitize_body(turn["plan"]))))
     if turn["text"]:
-        out.append(("response", Markdown(turn["text"])))
+        out.append(("response", Markdown(sanitize_body(turn["text"]))))
     if turn["tasks"]:
         out.append(("tasks", tasks_renderable(turn["tasks"])))
     if not out:
@@ -509,9 +634,16 @@ def render_screen(turn, surfaces, active, scroll, frozen=False, pending=False, f
 
 
 # ----------------------------------------------------------------------------- picker
+def _safe_mtime(path):
+    try:
+        return os.path.getmtime(path)
+    except OSError:                       # deleted/rotated between glob and stat
+        return -1
+
+
 def list_sessions(proj_dir, limit=14):
     files = glob.glob(os.path.join(proj_dir, "*.jsonl"))
-    files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+    files.sort(key=_safe_mtime, reverse=True)
     return [parse_turn(p) for p in files[:limit]]
 
 
@@ -617,8 +749,10 @@ def review(path, rawin):
                         last_mtime = 0         # unfreeze -> pull latest immediately
                 elif k == "y":                 # yank the active surface's RAW text
                     label = surfaces[active][0]
-                    ok = copy_to_clipboard(_surface_raw_text(turn, label))
-                    flash = f"copied {label}" if ok else "nothing to copy"
+                    res = copy_to_clipboard(_surface_raw_text(turn, label))
+                    flash = {"ok": f"copied {label}",
+                             "empty": "nothing to copy",
+                             "too_large": f"{label} too large to copy"}[res]
                 elif k == "\t":
                     active = (active + 1) % len(surfaces)
                     scroll = 0
@@ -889,6 +1023,9 @@ def main(argv=None):
             print(f"no session matching '{sid}' in {proj}", file=sys.stderr)
             print("Try 'claude-review -l' to see available session ids.", file=sys.stderr)
             return 1
+        # An ambiguous prefix can match several sessions — attach to the most
+        # recently active one rather than an arbitrary glob order.
+        hits.sort(key=_safe_mtime, reverse=True)
         direct = hits[0]
 
     if not sys.stdin.isatty():

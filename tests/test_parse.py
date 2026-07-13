@@ -259,7 +259,7 @@ def test_surface_raw_text_handles_missing_surfaces():
 
 def test_copy_to_clipboard_emits_osc52(capsys):
     import base64
-    assert cr.copy_to_clipboard("hello world") is True
+    assert cr.copy_to_clipboard("hello world") == "ok"
     out = capsys.readouterr().out
     assert out.startswith("\x1b]52;c;") and out.endswith("\x07")
     payload = out[len("\x1b]52;c;"):-1]
@@ -267,8 +267,16 @@ def test_copy_to_clipboard_emits_osc52(capsys):
 
 
 def test_copy_to_clipboard_empty_is_noop(capsys):
-    assert cr.copy_to_clipboard("") is False
+    assert cr.copy_to_clipboard("") == "empty"
     assert capsys.readouterr().out == ""    # nothing emitted, so caller can flash a hint
+
+
+def test_copy_to_clipboard_oversize_is_not_a_false_ok(capsys):
+    # past the OSC 52 soft limit many terminals silently drop the payload — we
+    # must NOT emit and NOT claim success, so the caller can flash an honest note.
+    big = "x" * (cr._OSC52_SOFT_LIMIT + 1)
+    assert cr.copy_to_clipboard(big) == "too_large"
+    assert capsys.readouterr().out == ""
 
 
 # --------------------------------------------------------------------------- is_real_prompt
@@ -384,6 +392,173 @@ def test_resolve_proj_derives_slug_from_cwd(monkeypatch, tmp_path):
     monkeypatch.setattr(cr.os, "getcwd", lambda: here_abs)
     assert cr.resolve_proj(None) == cr.os.path.join(str(tmp_path), slug)
 
+
+# --------------------------------------------------------------------------- list-shaped prompts
+def user_blocks(blocks):
+    """A user record whose content is a block-list (resume / attachment / skill)."""
+    return {"type": "user", "message": {"content": blocks}}
+
+
+def test_list_shaped_prompt_is_recognized(tmp_path):
+    # --continue / auto-compact resume writes the prompt as a text block-list, not
+    # a bare string. It must be treated as a real prompt (and reset text/plan), or
+    # the pane shows the PREVIOUS turn's question against a stale answer.
+    f = tmp_path / "s.jsonl"
+    write_jsonl(f, [
+        user("first question"),
+        assistant([text_block("first answer")]),
+        user_blocks([{"type": "text", "text": "Continue from where you left off."}]),
+        assistant([text_block("resumed answer")]),
+    ])
+    turn = cr.parse_turn(str(f))
+    assert turn["question"] == "Continue from where you left off."
+    assert turn["text"] == "resumed answer"
+
+
+def test_list_prompt_ignores_tool_result_and_wrapper_blocks(tmp_path):
+    # a tool_result block-list, or one whose text is a '<...>' wrapper, is NOT a
+    # user prompt — must not clobber the real question.
+    f = tmp_path / "s.jsonl"
+    write_jsonl(f, [
+        user("the real question"),
+        assistant([text_block("the answer")]),
+        user_blocks([{"type": "tool_result", "content": "ok"}]),
+    ])
+    assert cr.parse_turn(str(f))["question"] == "the real question"
+
+
+@pytest.mark.parametrize("content,expected", [
+    ([{"type": "text", "text": "hello"}], True),
+    ([{"type": "text", "text": "  <command>/x</command>"}], False),
+    ([{"type": "tool_result", "content": "x"}], False),
+    ([{"type": "image", "source": {}}], False),
+    ([], False),
+])
+def test_is_real_prompt_list_forms(content, expected):
+    assert cr.is_real_prompt(content) is expected
+
+
+# --------------------------------------------------------------------------- resilience to junk records
+def test_non_dict_json_line_does_not_crash_parse(tmp_path):
+    # a valid-JSON but non-object line (or explicit "message": null) must not take
+    # down the whole parse — it should be skipped like malformed lines.
+    f = tmp_path / "s.jsonl"
+    f.write_text(
+        "42\n"
+        + '"a bare string line"\n'
+        + json.dumps({"type": "user", "message": None}) + "\n"
+        + json.dumps(user("q")) + "\n"
+        + json.dumps(assistant([text_block("survived")])) + "\n",
+        encoding="utf-8",
+    )
+    turn = cr.parse_turn(str(f))
+    assert turn["question"] == "q"
+    assert turn["text"] == "survived"
+
+
+# --------------------------------------------------------------------------- body sanitizing
+def test_sanitize_body_strips_escape_but_keeps_structure():
+    # ESC (and the OSC 52 clipboard-hijack sequence) must be stripped from the
+    # rendered body, but newlines and tabs that carry Markdown structure survive.
+    raw = "line one\n\tindented\n\x1b]52;c;ZXZpbA==\x07plus \x1b[31mred\x1b[0m"
+    out = cr.sanitize_body(raw)
+    assert "\x1b" not in out and "\x07" not in out
+    assert "\n" in out and "\t" in out          # structure preserved
+    assert "line one" in out and "indented" in out and "plus" in out
+
+
+def test_sanitize_body_handles_empty():
+    assert cr.sanitize_body("") == ""
+    assert cr.sanitize_body(None) is None
+
+
+def test_build_surfaces_sanitizes_response_and_plan():
+    # the surfaces handed to rich must already be escape-free.
+    turn = {"plan": "p\x1blan", "text": "te\x1bxt", "tasks": None,
+            "format_drift": False, "mtime": cr.time.time()}
+    surfaces = dict((lbl, r) for lbl, r in cr.build_surfaces(turn))
+    # rich Markdown stores the source on .markup
+    assert "\x1b" not in surfaces["plan"].markup
+    assert "\x1b" not in surfaces["response"].markup
+
+
+# --------------------------------------------------------------------------- task reconstruction
+def test_tasks_reconstructed_from_whole_file_not_tail(tmp_path):
+    # ids are assigned from the START of the session, so even if the creating
+    # records fall outside a small tail window, TaskUpdate must still hit the right
+    # row. parse_turn reads tasks over the whole file, so a huge filler turn in
+    # between must not renumber tasks.
+    f = tmp_path / "s.jsonl"
+    filler = assistant([text_block("x" * 2000)])
+    events = [
+        user("do work"),
+        assistant([
+            tool_block("TaskCreate", subject="task one"),
+            tool_block("TaskCreate", subject="task two"),
+        ]),
+    ]
+    events += [filler] * 400                      # push creates far past a tail window
+    events += [
+        user("later"),
+        assistant([tool_block("TaskUpdate", taskId="2", status="completed")]),
+    ]
+    write_jsonl(f, events)
+    tasks = cr.parse_turn(str(f))["tasks"]
+    assert tasks == [
+        {"status": "pending", "content": "task one"},
+        {"status": "completed", "content": "task two"},   # #2 hit correctly
+    ]
+
+
+def test_task_batch_shape_is_expanded(tmp_path):
+    # the batch TaskCreate carries a JSON-STRING array under "tasks".
+    f = tmp_path / "s.jsonl"
+    batch = json.dumps([
+        {"content": "first", "status": "in_progress"},
+        {"content": "second", "status": "pending"},
+    ])
+    write_jsonl(f, [
+        user("q"),
+        assistant([{"type": "tool_use", "name": "TaskCreate", "input": {"tasks": batch}}]),
+    ])
+    assert cr.parse_turn(str(f))["tasks"] == [
+        {"status": "in_progress", "content": "first"},
+        {"status": "pending", "content": "second"},
+    ]
+
+
+def test_subagent_spawn_taskcreate_is_not_a_todo(tmp_path):
+    # a TaskCreate carrying subagent_type/prompt is a subagent spawn, not a
+    # todo-list entry — it must not inject a blank row or shift the id counter.
+    f = tmp_path / "s.jsonl"
+    write_jsonl(f, [
+        user("q"),
+        assistant([
+            tool_block("TaskCreate", subject="real todo"),
+            {"type": "tool_use", "name": "TaskCreate",
+             "input": {"subagent_type": "general-purpose", "prompt": "go"}},
+        ]),
+        assistant([tool_block("TaskUpdate", taskId="1", status="completed")]),
+    ])
+    # only the real todo exists, and it's still id 1 (spawn didn't consume an id)
+    assert cr.parse_turn(str(f))["tasks"] == [{"status": "completed", "content": "real todo"}]
+
+
+# --------------------------------------------------------------------------- unicode line separators
+def test_tail_lines_does_not_split_on_unicode_separators(tmp_path):
+    # Node's JSON.stringify does NOT escape U+2028 (LS), U+2029 (PS), or U+0085
+    # (NEL), so a record whose text contains one must survive as ONE line. Python's
+    # str.splitlines() breaks on all three (and VT/FF/FS/GS/RS), which would shatter
+    # the JSON record into invalid fragments and lose the response entirely.
+    # split("\n") (what tail_lines now uses) only breaks on real newlines.
+    f = tmp_path / "s.jsonl"
+    body = "para one\u2028para two\u2029next\u0085tail\x0bvtab"
+    f.write_text(
+        json.dumps(user("q")) + "\n"
+        + json.dumps(assistant([text_block(body)])) + "\n",
+        encoding="utf-8",
+    )
+    assert cr.parse_turn(str(f))["text"] == body
 
 # --------------------------------------------------------------------------- turn_sig
 def test_turn_sig_changes_when_response_changes(tmp_path):

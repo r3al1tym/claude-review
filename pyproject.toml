@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "claude-review"
-version = "0.3.0"
+version = "0.4.0"
 description = "A focused review surface for a single Claude Code session — watch the latest response, plan, and tasks in a split-terminal pane."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -18,6 +18,11 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: POSIX",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development",
     "Topic :: Terminals",
 ]
@@ -43,6 +48,9 @@ include = [
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
     "tests/",
     "examples/",
 ]
