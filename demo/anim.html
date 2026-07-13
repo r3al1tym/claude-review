@@ -26,7 +26,7 @@ html,body{background:#070707;
 .bar .t{flex:1;text-align:center;color:var(--g50);font-size:12px}
 .bar .t b{color:var(--g70);font-weight:500}
 .split{display:flex;height:592px}
-.pane{flex:1;min-width:0;position:relative;font-size:12.5px;line-height:1.6}
+.pane{flex:1;min-width:0;overflow:hidden;position:relative;font-size:12.5px;line-height:1.6}
 .vdiv{width:1px;background:var(--g27)}
 
 /* ---------- LEFT : Claude Code, busy back-and-forth ---------- */
@@ -60,10 +60,16 @@ html,body{background:#070707;
   transform:translateY(2px)}
 .cc .meta{padding:0 16px 8px;color:var(--g37);font-size:11px}
 
-/* ---------- RIGHT : claude-review, one turn, at rest ---------- */
+/* ---------- RIGHT : the new pane — shell first, then claude-review ---------- */
 .cr{display:flex;flex-direction:column;color:var(--content)}
+/* shell phase: the user has just split the terminal and types the command */
+.cr .sh{padding:15px 16px 0;color:var(--g85)}
+.cr .sh .shln{white-space:pre-wrap;margin:1px 0}
+.cr .sh .p{color:var(--cc-dot)}
+.cr .sh .dim{color:var(--g50)}
+.cr .sh .cur{display:inline-block;width:7px;height:14px;background:var(--g85);transform:translateY(2px)}
+/* claude-review TUI */
 .cr .rule{display:flex;align-items:center;gap:8px;padding:0 15px;color:var(--g27)}
-.cr .rule .ln{flex:1;border-top:1px solid var(--g27)}
 .cr .badge{color:var(--g70);background:var(--g27);border-radius:3px;padding:1px 8px;font-size:12px}
 .cr .body{flex:1;overflow:hidden;padding:15px 18px 0 30px}
 /* claude-review markdown: H1 bold+underline+CENTERED, H3 bold; borderless teal table */
@@ -84,36 +90,53 @@ html,body{background:#070707;
 .cr .tabon{color:var(--g85);text-decoration:underline;text-underline-offset:3px}
 .cr.frozen .dot{color:var(--cyan)} .cr.frozen .state{color:var(--cyan)}
 .cr .newhint{color:var(--cyan)}
+/* freeze keycap — flashes when `f` toggles freeze on */
+.cr .keycap{position:absolute;right:18px;bottom:46px;background:var(--cyan);color:#08201f;
+  font-size:12px;border-radius:6px;padding:3px 9px;
+  box-shadow:0 0 0 2px rgba(70,212,212,.30),0 8px 22px rgba(0,0,0,.55)}
+.cr .keycap b{font-weight:700}
+.cr .keycap small{font-weight:400;opacity:.75;margin-left:3px}
 </style></head>
 <body>
 <div class="wrap"><div class="frame">
   <div class="bar"><div class="l"><i class="r"></i><i class="y"></i><i class="g"></i></div>
-    <div class="t"><b>claude</b>&nbsp;&nbsp;│&nbsp;&nbsp;<b>claude-review</b></div></div>
+    <div class="t" id="barTitle"><b>claude</b></div></div>
   <div class="split">
-    <div class="pane cc"><div class="scroll" id="ccScroll"></div>
+    <div class="pane cc" id="ccPane"><div class="scroll" id="ccScroll"></div>
       <div class="inp" id="ccInp"></div>
       <div class="meta">claude-opus-4-8 · ⏎ send</div>
     </div>
-    <div class="vdiv"></div>
-    <div class="pane cr" id="cr">
-      <div class="rule"><span class="badge">claude review</span><span class="ln"></span></div>
-      <div class="body" id="crBody"></div>
-      <div class="foot">
-        <div class="rule"><span class="ln"></span></div>
-        <div class="keys" id="crKeys"></div>
-      </div>
-    </div>
+    <div class="vdiv" id="vdiv"></div>
+    <div class="pane cr" id="cr"></div>
   </div>
 </div></div>
 
 <script>
 // ---- deterministic timeline (seconds) ----
-// Faithful model: the review pane re-renders the WHOLE current turn on file
-// change — it never typewriters. So: idle shows the prior turn; a fresh prompt
-// resets the turn (jump to top, "working" placeholder); when the answer lands it
-// appears COMPLETE in one render; freeze holds that render while the left moves on.
-var T={ typeStart:0.4, askT:1.7, answerT:4.6, buryAskT:7.2, freezeT:7.0, endT:11.0 };
+// The full story, faithful to how you'd actually reach for claude-review:
+//   0.0  a Claude Code session, single full-width pane, already mid-work
+//   1.4  you SPLIT the terminal — a second pane slides in (tmux)
+//   1.7  you type `claude-review` in the new pane and hit enter
+//   2.9  it attaches to the newest session and pins its LATEST response
+//   4.4  back on the left you ask a fresh question; the pane resets to the top,
+//        shows a real "working" placeholder, then renders the whole answer at once
+//  10.0  you press `f` — FREEZE holds your read while Claude keeps working left
+// The review pane re-renders the WHOLE current turn on file change; it never
+// typewriters. Freeze is the one moment colour enters (cyan).
+var T={
+  splitT:1.4,        // terminal splits; right pane appears
+  cmdStart:1.7,      // start typing `claude-review`
+  cmdEnter:2.9,      // command submitted
+  attachedT:3.6,     // attached → shows the pinned latest response
+  askStart:4.4,      // start typing the new prompt on the LEFT
+  askT:5.7,          // new prompt submitted
+  answerT:8.2,       // the review renders (both panes)
+  freezeT:10.0,      // freeze toggled ON (highlighted)
+  buryAskT:10.2,     // left moves on
+  endT:13.8
+};
 var NEW_PROMPT="give me the full cutover review — go / no-go, with risks and blockers";
+var CMD="claude-review";
 
 // ---- THE REVIEW ----
 // One shared markdown render. BOTH panes show this EXACT content — Claude Code
@@ -162,7 +185,8 @@ function ccTable(){
 }
 var REVIEW=review('cr');             // right pane uses the claude-review render
 
-// previous (shorter) turn shown before the new ask — proves jump-to-top on fresh turn
+// previous (shorter) turn shown before the new ask — this is the LATEST response
+// at attach time, and it matches the bottom of the left transcript.
 var PREV='<div class="h1">Data-layer risks</div><p>Two stand out before cutover:</p>'+
  '<div class="li">- [ ] no rollback rehearsal</div>'+
  '<div class="li">- [ ] token format not backward-compatible</div>';
@@ -178,55 +202,91 @@ var L=[
  {a:-1, h:'<div class="e tool"><span class="d">●</span> Grep("rollback", src/)</div><div class="e res">  └─ 3 matches</div>'},
  {a:-1, h:'<div class="e tool"><span class="d">●</span> Read(data-layer/cutover.ts)</div><div class="e res">  └─ Read 180 lines</div>'},
  {a:-1, h:'<div class="a">Two stand out:<div class="bul">• no rollback rehearsal</div><div class="bul">• token format <b>not</b> backward-compatible</div></div>'},
- // new ask
+ // new ask (typed into the input box during askStart..askT, then lands here)
  {a:T.askT, h:'<div class="e u"><span class="c">❯</span> '+NEW_PROMPT+'</div>'},
- {a:2.3, h:'<div class="e tool"><span class="d">●</span> Read(migration-plan.md)</div>'},
- {a:2.8, h:'<div class="e tool"><span class="d">●</span> Grep("rollback|rehearsal", src/)</div><div class="e res">  └─ 7 matches across 5 files</div>'},
- {a:3.4, h:'<div class="e tool"><span class="d">●</span> Read(auth/session-store.ts)</div><div class="e res">  └─ Read 318 lines</div>'},
- {a:4.0, h:'<div class="e think">✻ Thinking… weighing severity vs. blast radius…</div>'},
- {a:4.6, h:'<div class="e tool"><span class="d">●</span> Read(data-layer/cutover.ts)</div>'},
- {a:5.1, h:'<div class="e tool"><span class="d">●</span> Read(config/rate-limits.ts)</div><div class="e res">  └─ Read 64 lines</div>'},
- // the SAME content renders on the left too (Claude Code's own renderer:
- // box-bordered table) — then gets buried by what follows
+ {a:6.0, h:'<div class="e tool"><span class="d">●</span> Read(migration-plan.md)</div>'},
+ {a:6.4, h:'<div class="e tool"><span class="d">●</span> Grep("rollback|rehearsal", src/)</div><div class="e res">  └─ 7 matches across 5 files</div>'},
+ {a:7.0, h:'<div class="e tool"><span class="d">●</span> Read(auth/session-store.ts)</div><div class="e res">  └─ Read 318 lines</div>'},
+ {a:7.5, h:'<div class="e think">✻ Thinking… weighing severity vs. blast radius…</div>'},
+ {a:7.9, h:'<div class="e tool"><span class="d">●</span> Read(data-layer/cutover.ts)</div>'},
+ // the SAME content renders on the left too (Claude Code's own box-bordered
+ // table) — then gets buried by what follows
  {a:T.answerT, h:'<div class="a review">'+review('cc')+'</div>'},
+ {a:9.0, h:'<div class="e tool"><span class="d">●</span> Read(config/rate-limits.ts)</div><div class="e res">  └─ Read 64 lines</div>'},
+ // after freeze the left keeps moving — the whole point of freezing the right
  {a:T.buryAskT, h:'<div class="e u"><span class="c">❯</span> ok — which one is riskiest to ship first?</div>'},
- {a:7.0, h:'<div class="e tool"><span class="d">●</span> Read(rate-limiter.ts)</div><div class="e res">  └─ Read 92 lines</div>'},
- {a:7.5, h:'<div class="e think">✻ Thinking… the data-layer cutover has the widest blast radius…</div>'},
- {a:8.0, h:'<div class="e tool"><span class="d">●</span> Grep("rateLimit", src/)</div><div class="e res">  └─ 12 matches</div>'},
- {a:8.7, h:'<div class="e tool"><span class="d">●</span> Read(config/limits.ts)</div>'},
- {a:9.4, h:'<div class="e think">✻ Thinking…</div>'}
+ {a:10.7, h:'<div class="e tool"><span class="d">●</span> Read(rate-limiter.ts)</div><div class="e res">  └─ Read 92 lines</div>'},
+ {a:11.3, h:'<div class="e think">✻ Thinking… the data-layer cutover has the widest blast radius…</div>'},
+ {a:11.9, h:'<div class="e tool"><span class="d">●</span> Grep("rateLimit", src/)</div><div class="e res">  └─ 12 matches</div>'},
+ {a:12.5, h:'<div class="e tool"><span class="d">●</span> Read(config/limits.ts)</div>'},
+ {a:13.1, h:'<div class="e think">✻ Thinking…</div>'}
 ];
 
 function clamp(x,a,b){return x<a?a:(x>b?b:x);}
 function blink(t){return Math.floor(t*1.6)%2===0;}
 
-function renderRight(t){
-  var cr=document.getElementById('cr'), body=document.getElementById('crBody'), keys=document.getElementById('crKeys');
-  var frozen  = (t>=T.freezeT);                 // freeze holds the view to the end
-  var idle    = (t<T.askT);                     // before the new prompt → prior turn
-  var working = (t>=T.askT && t<T.answerT);     // turn reset, answer not in yet
+// The shell the user sees right after splitting: a prompt, the typed command,
+// then a one-line attach notice before the TUI takes over.
+function shellView(t){
+  var typing = (t>=T.cmdStart && t<T.cmdEnter);
+  var full   = (t>=T.cmdEnter);
+  var shown  = full ? CMD
+             : typing ? CMD.slice(0, Math.floor(clamp((t-T.cmdStart)/(T.cmdEnter-T.cmdStart),0,1)*CMD.length))
+             : '';
+  var cur = (t<T.cmdEnter && blink(t)) ? '<span class="cur"></span>' : '';
+  var h='<div class="sh"><div class="shln"><span class="p">❯</span> '+shown+cur+'</div>';
+  if(full) h+='<div class="shln dim">  ⋯ attaching to 7dab670a — newest session</div>';
+  h+='</div>';
+  return h;
+}
+
+// The claude-review TUI: idle (prior turn) → working → the complete review, then frozen.
+function tuiView(t,cr){
+  var frozen  = (t>=T.freezeT);
+  var idle    = (t<T.askT);
+  var working = (t>=T.askT && t<T.answerT);
   cr.className='pane cr'+(frozen?' frozen':'');
+  var bodyHtml = idle?PREV:(working?WORKING:REVIEW);
 
-  if(idle){
-    body.innerHTML=PREV;                        // the PREVIOUS turn, in full
-  } else if(working){
-    body.innerHTML=WORKING;                     // fresh turn → top, real placeholder
-  } else {
-    body.innerHTML=REVIEW;                      // the COMPLETE review, all at once
-  }
-  body.scrollTop=0;                             // every turn renders from the top
-
-  // footer — EXACTLY mirrors render_screen(): state word padded to 7 so the id
-  // never shifts; "new ↓" only when frozen+pending; surface tabs only with 2+
-  // surfaces (this turn is response-only, so none); "s switch" dropped when frozen.
   var dot   = frozen?'■':(idle?'○':'●');
   var state = frozen?'frozen':(idle?'idle':'working');
-  while(state.length<7) state+=' ';        // pad to 7 (working=longest)
-  var hint  = frozen ? '   <span class="newhint">new ↓</span>' : '';
-  var left='<span><span class="dot">'+dot+'</span> <span class="state">'+state+'</span>  ·  <span class="sid">7dab670a</span>'+hint+'</span>';
+  while(state.length<7) state+=' ';        // pad to 7 (working=longest) so the id never shifts
+  var hint  = frozen ? '   <span class="newhint">new ↓</span>' : '';
+  var left  = '<span><span class="dot">'+dot+'</span> <span class="state">'+state+'</span>  ·  <span class="sid">7dab670a</span>'+hint+'</span>';
   var fkey  = frozen?'f unfreeze':'f freeze';
   var keystr= fkey+' · ↑↓ scroll'+(frozen?'':' · s switch')+' · q quit';
-  keys.innerHTML=left+'<span>'+keystr+'</span>';
+
+  // freeze keycap flash — a quick cyan `f` press when freeze toggles on
+  var kc='';
+  if(t>=T.freezeT && t<T.freezeT+1.15){
+    var kp=(t-T.freezeT)/1.15;
+    var op=clamp(kp<0.10?kp/0.10:(1-(kp-0.10)/0.90),0,1);
+    kc='<div class="keycap" style="opacity:'+op.toFixed(3)+'"><b>f</b><small>freeze on</small></div>';
+  }
+  return '<div class="rule"><span class="badge">claude review</span><span class="ln"></span></div>'+
+    '<div class="body">'+bodyHtml+'</div>'+
+    '<div class="foot"><div class="rule"><span class="ln"></span></div>'+
+    '<div class="keys">'+left+'<span>'+keystr+'</span></div></div>'+kc;
+}
+
+function renderRight(t){
+  var cr=document.getElementById('cr'), left=document.getElementById('ccPane'), vd=document.getElementById('vdiv'),
+      title=document.getElementById('barTitle');
+  // split geometry: right pane slides in over ~0.35s
+  var sp=clamp((t-T.splitT)/0.35,0,1);
+  left.style.flex='0 0 '+(100-50*sp)+'%';
+  cr.style.flex  ='0 0 '+(50*sp)+'%';
+  vd.style.display = sp>0?'block':'none';
+  cr.style.display = sp>0?'flex':'none';
+
+  // window title tracks the split: one pane → shell → claude-review
+  if(t<T.splitT)            title.innerHTML='<b>claude</b>';
+  else if(t<T.attachedT)    title.innerHTML='<b>claude</b>&nbsp;&nbsp;│&nbsp;&nbsp;zsh';
+  else                      title.innerHTML='<b>claude</b>&nbsp;&nbsp;│&nbsp;&nbsp;<b>claude-review</b>';
+
+  if(t<T.splitT){ cr.innerHTML=''; return; }
+  if(t<T.attachedT){ cr.className='pane cr'; cr.innerHTML=shellView(t); return; }
+  cr.innerHTML=tuiView(t,cr);
 }
 
 function renderLeft(t){
@@ -234,9 +294,9 @@ function renderLeft(t){
   var html='';
   for(var i=0;i<L.length;i++){ if(L[i].a<=t) html+=L[i].h; }
   sc.innerHTML=html; sc.scrollTop=sc.scrollHeight;     // auto-scroll to newest
-  // typing the new prompt into the input box before submit
-  if(t>=T.typeStart && t<T.askT){
-    var f=clamp((t-T.typeStart)/(T.askT-T.typeStart),0,1);
+  // type the new prompt into the input box before submit (after attach)
+  if(t>=T.askStart && t<T.askT){
+    var f=clamp((t-T.askStart)/(T.askT-T.askStart),0,1);
     var n=Math.floor(f*NEW_PROMPT.length);
     inp.innerHTML=NEW_PROMPT.slice(0,n)+(blink(t)?'<span class="cur"></span>':'');
   } else {
@@ -246,7 +306,7 @@ function renderLeft(t){
 
 function seek(t){ renderLeft(t); renderRight(t); }
 var q=new URLSearchParams(location.search);
-var t=parseFloat(q.get('t')); if(isNaN(t)) t=4.0;
+var t=parseFloat(q.get('t')); if(isNaN(t)) t=6.0;
 window.__T=T;
 document.fonts.ready.then(function(){ seek(t); document.body.setAttribute('data-ready','1'); });
 seek(t);
