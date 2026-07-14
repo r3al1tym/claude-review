@@ -29,11 +29,15 @@ html,body{background:#070707;
 .btitle{display:flex;align-items:center;justify-content:center;overflow:hidden;
   white-space:nowrap;min-width:0;color:var(--g50);font-size:12px}
 .btitle b{color:var(--g70);font-weight:500}
-.btdiv{width:2px;background:var(--sep)}   /* continues the pane separator up through the bar */
+.btdiv{flex:0 0 2px;width:2px;background:var(--sep)}   /* rigid: never let flex crush it to 0 */
 
 .split{display:flex;height:592px}
 .pane{flex:1;min-width:0;overflow:hidden;position:relative;font-size:12.5px;line-height:1.6}
-.vdiv{width:2px;background:var(--sep)}     /* the vertical separator between the two panes (2px so GIF dithering can't erase it) */
+/* rigid 2px so the two panes (each set to a % width) can't overflow the row and
+   collapse the only shrinkable item — the separator — to zero. This was the bug:
+   50% + 50% + 2px overflowed, flex shrank the vdiv to 0 in the body (the title
+   bar survived only because its neighbours were shrinkable). */
+.vdiv{flex:0 0 2px;width:2px;background:var(--sep)}
 
 /* ---------- LEFT : Claude Code, busy back-and-forth ---------- */
 .cc{display:flex;flex-direction:column}
@@ -291,17 +295,20 @@ function renderRight(t){
   // left as the new pane opens behind it — so the separator is visible for the
   // entire slide, never lagging the pane content.
   var sp = easeInOut(clamp((t-T.splitT)/T.slideDur,0,1));
-  var lf=100-50*sp, rf=50*sp, showR = t>=T.splitT;
-  left.style.flex ='0 0 '+lf+'%';
+  var rf=50*sp, showR = t>=T.splitT;
+  // LEFT pane flexes to fill whatever the right pane + rigid separator leave, so
+  // the 2px divider is never the item flex chooses to crush. RIGHT pane gets the
+  // explicit %; the separator is flex:0 0 2px (rigid) in CSS.
+  left.style.flex ='1 1 auto';
   cr.style.flex   ='0 0 '+rf+'%';
   cr.style.opacity  =clamp(sp*2.2,0,1).toFixed(3);   // content fades in behind the divider
   cr.style.display  = showR?'flex':'none';
   vd.style.display  = showR?'block':'none';           // separator on from the first split frame
 
-  // title bars: each title centered over ITS pane (tracks the split ratio); the
-  // bar divider lines up with the pane separator so it reads as one line.
-  btL.style.flex='1 1 '+lf+'%';
-  btR.style.flex='1 1 '+rf+'%';
+  // title bars mirror the same geometry so the bar divider lines up with the
+  // pane separator and reads as one continuous line.
+  btL.style.flex='1 1 auto';
+  btR.style.flex='0 0 '+rf+'%';
   btR.style.display = showR?'flex':'none';
   btD.style.display = showR?'block':'none';
   btR.innerHTML = (t<T.attachedT) ? 'zsh' : '<b>claude-review</b>';
