@@ -9,41 +9,40 @@
   --term:#15140f;            /* one terminal bg, both panes (tmux split) */
   --content:#ece9e1;         /* full-bright answer text */
   --g85:#d8d6cf; --g70:#b1aea5; --g62:#9b978d; --g50:#7f7b71; --g37:#5d5a52; --g27:#46433d;
-  --sep:#7d776a;             /* the vertical pane separator — bright enough to survive GIF palette quantization */
+  --sep:#524e47;             /* the vertical pane separator — dim but survives GIF palette quantization at 1px (rigid flex) */
   --cyan:#46d4d4;            /* the ONE colour — frozen only */
   --cc-dot:#6f9f6f;          /* claude-code tool bullet (muted green) */
 }
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{background:#070707;
+html,body{height:100%;width:100%;background:var(--term);
   font-family:JBM,"DejaVu Sans Mono",monospace;
   font-variant-emoji:text}                 /* never substitute colour-emoji glyphs */
-.wrap{width:1010px;margin:14px auto}
-.frame{border-radius:11px;overflow:hidden;background:var(--term);
-  box-shadow:0 26px 70px -14px rgba(0,0,0,.75),0 0 0 1px rgba(255,255,255,.045)}
+/* SQUARE full-bleed: the terminal window IS the frame — no desktop, no bars. */
+.wrap{width:100%;height:100%;margin:0}
+.frame{overflow:hidden;background:var(--term);width:100%;height:100%;
+  display:flex;flex-direction:column}
 
 /* ---- title bar: traffic lights + a per-pane centered title on each side ---- */
-.bar{height:34px;background:#211f1a;display:flex;position:relative}
-.lights{position:absolute;left:13px;top:0;height:34px;display:flex;align-items:center;gap:8px;z-index:2}
-.lights i{width:11px;height:11px;border-radius:50%}
+.bar{height:32px;flex:0 0 32px;background:#211f1a;display:flex;position:relative}
+.lights{position:absolute;left:12px;top:0;height:32px;display:flex;align-items:center;gap:7px;z-index:2}
+.lights i{width:10px;height:10px;border-radius:50%}
 .lights .r{background:#f25f57}.lights .y{background:#fbbe2e}.lights .g{background:#28c93f}
 .btitle{display:flex;align-items:center;justify-content:center;overflow:hidden;
-  white-space:nowrap;min-width:0;color:var(--g50);font-size:12px}
+  white-space:nowrap;min-width:0;color:var(--g50);font-size:11px}
 .btitle b{color:var(--g70);font-weight:500}
-.btdiv{flex:0 0 2px;width:2px;background:var(--sep)}   /* rigid: never let flex crush it to 0 */
+.btdiv{flex:0 0 1px;width:1px;background:var(--sep)}   /* rigid: never let flex crush it to 0 */
 
-.split{display:flex;height:592px}
-.pane{flex:1;min-width:0;overflow:hidden;position:relative;font-size:12.5px;line-height:1.6}
-/* rigid 2px so the two panes (each set to a % width) can't overflow the row and
-   collapse the only shrinkable item — the separator — to zero. This was the bug:
-   50% + 50% + 2px overflowed, flex shrank the vdiv to 0 in the body (the title
-   bar survived only because its neighbours were shrinkable). */
-.vdiv{flex:0 0 2px;width:2px;background:var(--sep)}
+.split{display:flex;flex:1;min-height:0}
+.pane{flex:1;min-width:0;overflow:hidden;position:relative;font-size:10px;line-height:1.5}
+/* rigid 1px so the two panes (each set to a % width) can't overflow the row and
+   collapse the only shrinkable item — the separator — to zero. */
+.vdiv{flex:0 0 1px;width:1px;background:var(--sep)}
 
 /* ---------- LEFT : Claude Code, busy back-and-forth ---------- */
 .cc{display:flex;flex-direction:column}
-.cc .scroll{flex:1;overflow:hidden;padding:14px 16px 0;
-  -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 56px);
-  mask-image:linear-gradient(180deg,transparent 0,#000 56px)}
+.cc .scroll{flex:1;overflow:hidden;padding:11px 11px 0;
+  -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 48px);
+  mask-image:linear-gradient(180deg,transparent 0,#000 48px)}
 .cc .e{white-space:pre-wrap;margin:1px 0}
 .cc .u{color:var(--g85)}
 .cc .u .c{color:var(--cc-dot)}
@@ -51,59 +50,59 @@ html,body{background:#070707;
 .cc .tool .d{color:var(--cc-dot)}
 .cc .res{color:var(--g37)}
 .cc .think{color:var(--g50);font-style:italic}
-.cc .a{color:var(--content);margin:3px 0 7px}
+.cc .a{color:var(--content);margin:3px 0 6px}
 .cc .a b,.cc .a strong{font-weight:700}
-.cc .a .bul{padding-left:14px;text-indent:-14px}
+.cc .a .bul{padding-left:12px;text-indent:-12px}
 /* Claude Code's own render of the answer: H1 bold+underline+centered, H3 bold,
    and a FULL-BORDER monochrome table (no colour) — distinct from the review pane */
 .cc .review .h1{font-weight:700;color:#fff;text-align:left;margin:3px 0}
-.cc .review .h3{font-weight:700;color:#fff;margin:11px 0 0}
-.cc .review p{margin:9px 0 0}
+.cc .review .h3{font-weight:700;color:#fff;margin:9px 0 0}
+.cc .review p{margin:7px 0 0}
 .cc .review p .hl{font-weight:700;color:#fff}
-.cc .review table.box{border-collapse:collapse;margin:11px 0 0;color:var(--content)}
-.cc .review table.box th,.cc .review table.box td{border:1px solid var(--g50);padding:1px 10px;text-align:left}
+.cc .review table.box{border-collapse:collapse;margin:9px 0 0;color:var(--content)}
+.cc .review table.box th,.cc .review table.box td{border:1px solid var(--g50);padding:1px 5px;text-align:left}
 .cc .review table.box th{font-weight:700}
-.cc .review .li{margin:4px 0 0}
-.cc .inp{margin:8px 14px 12px;border:1px solid var(--g27);border-radius:7px;
-  padding:7px 11px;color:var(--g70);white-space:pre-wrap;min-height:33px}
-.cc .inp .cur{display:inline-block;width:7px;height:14px;background:var(--g70);
+.cc .review .li{margin:3px 0 0}
+.cc .inp{margin:7px 11px 10px;border:1px solid var(--g27);border-radius:6px;
+  padding:6px 9px;color:var(--g70);white-space:pre-wrap;min-height:30px}
+.cc .inp .cur{display:inline-block;width:6px;height:12px;background:var(--g70);
   transform:translateY(2px)}
-.cc .meta{padding:0 16px 8px;color:var(--g37);font-size:11px}
+.cc .meta{padding:0 11px 7px;color:var(--g37);font-size:9px}
 
 /* ---------- RIGHT : the new pane — shell first, then claude-review ---------- */
 .cr{display:flex;flex-direction:column;color:var(--content)}
 /* shell phase: the user has just split the terminal and types the command */
-.cr .sh{padding:15px 16px 0;color:var(--g85)}
+.cr .sh{padding:12px 12px 0;color:var(--g85)}
 .cr .sh .shln{white-space:pre-wrap;margin:1px 0}
 .cr .sh .p{color:var(--cc-dot)}
 .cr .sh .dim{color:var(--g50)}
-.cr .sh .cur{display:inline-block;width:7px;height:14px;background:var(--g85);transform:translateY(2px)}
+.cr .sh .cur{display:inline-block;width:6px;height:12px;background:var(--g85);transform:translateY(2px)}
 /* claude-review TUI */
-.cr .rule{display:flex;align-items:center;gap:8px;padding:0 15px;color:var(--g27)}
+.cr .rule{display:flex;align-items:center;gap:7px;padding:0 12px;color:var(--g27)}
 .cr .rule .ln{flex:1;border-top:1px solid var(--g27)}
-.cr .badge{color:var(--g70);background:var(--g27);border-radius:3px;padding:1px 8px;font-size:12px}
-.cr .body{flex:1;overflow:hidden;padding:15px 18px 0 30px}
+.cr .badge{color:var(--g70);background:var(--g27);border-radius:3px;padding:1px 7px;font-size:11px}
+.cr .body{flex:1;overflow:hidden;padding:12px 13px 0 15px}
 /* claude-review markdown: H1 bold+underline+CENTERED, H3 bold; borderless teal table */
-.cr .h1{font-size:13px;font-weight:700;text-decoration:underline;text-underline-offset:3px;color:#fff;text-align:center;margin:0}
-.cr .h3{font-weight:700;color:#fff;margin:20px 0 0}
-.cr p{margin:13px 0 0;max-width:66ch}
+.cr .h1{font-size:12px;font-weight:700;text-decoration:underline;text-underline-offset:3px;color:#fff;text-align:center;margin:0}
+.cr .h3{font-weight:700;color:#fff;margin:13px 0 0}
+.cr p{margin:9px 0 0;max-width:none}
 .cr p .hl{font-weight:700;color:#fff}
-.cr .tbl{display:grid;grid-template-columns:auto auto 1fr;column-gap:26px;row-gap:2px;margin:17px 0 0;max-width:70ch}
+.cr .tbl{display:grid;grid-template-columns:auto auto 1fr;column-gap:11px;row-gap:2px;margin:12px 0 0;max-width:none}
 .cr .tbl .th{font-weight:700;color:#8fb6b6;border-bottom:1px solid var(--g27);padding-bottom:3px;margin-bottom:3px}
-.cr .li{margin:7px 0 0;color:var(--content)}
-.cr .cur{display:inline-block;width:7px;height:14px;background:var(--content);transform:translateY(2px);margin-left:1px}
+.cr .li{margin:6px 0 0;color:var(--content)}
+.cr .cur{display:inline-block;width:6px;height:12px;background:var(--content);transform:translateY(2px);margin-left:1px}
 .cr .working{color:var(--g50);font-style:italic}
-.cr .foot{padding:0 15px 13px}
-.cr .keys{display:flex;justify-content:space-between;gap:16px;white-space:nowrap;
-  padding:8px 16px 0;color:var(--g37);font-size:10px;letter-spacing:-.1px}
+.cr .foot{padding:0 12px 10px}
+.cr .keys{display:flex;justify-content:space-between;gap:8px;white-space:nowrap;
+  padding:7px 10px 0;color:var(--g37);font-size:6.2px;letter-spacing:-.2px}
 .cr .keys>span{white-space:pre}
 .cr .dot{color:var(--g37)} .cr .sid{color:var(--g37)}
 .cr .tabon{color:var(--g85);text-decoration:underline;text-underline-offset:3px}
 .cr.frozen .dot{color:var(--cyan)} .cr.frozen .state{color:var(--cyan)}
 .cr .newhint{color:var(--cyan)}
 /* freeze keycap — flashes when `f` toggles freeze on */
-.cr .keycap{position:absolute;right:18px;bottom:46px;background:var(--cyan);color:#08201f;
-  font-size:12px;border-radius:6px;padding:3px 9px;
+.cr .keycap{position:absolute;right:15px;bottom:42px;background:var(--cyan);color:#08201f;
+  font-size:11px;border-radius:6px;padding:3px 8px;
   box-shadow:0 0 0 2px rgba(70,212,212,.30),0 8px 22px rgba(0,0,0,.55)}
 .cr .keycap b{font-weight:700}
 .cr .keycap small{font-weight:400;opacity:.75;margin-left:3px}
@@ -162,12 +161,14 @@ var CMD="claude-review";
 // Rows shared by both panes' tables (content is identical; only the table CHROME
 // differs per renderer — Claude Code = full box borders, no colour; claude-review
 // = borderless, teal headers + one rule).
+// Cells kept terse so every row fits ONE line in the narrow square pane
+// (~41 mono chars wide) — no cell-wrapping, no clipped last row.
 var ROWS=[
- ['Session-store cutover','high','rollback rehearsal — none yet'],
- ['Token format change','high','dual-read shim — not built'],
- ['Rate limiter','med','load test at 2× peak'],
- ['Connection pool','med','raise ceiling + monitor'],
- ['Cache warmup','low','prewarm script — done']
+ ['Session-store','high','no rehearsal'],
+ ['Token format','high','no shim'],
+ ['Rate limiter','med','load-test 2×'],
+ ['Connection pool','med','raise ceiling'],
+ ['Cache warmup','low','prewarmed']
 ];
 var HEAD=['Risk','Severity','Mitigation'];
 

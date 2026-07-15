@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>claude-review — intro</title>
+<style>
+@font-face{font-family:JBM;src:url(jbm-Regular.woff2) format("woff2");font-weight:400;font-display:block}
+@font-face{font-family:JBM;src:url(jbm-Bold.woff2) format("woff2");font-weight:700;font-display:block}
+:root{
+  --term:#1a1714;           /* warm dark, Claude Code family */
+  --bar:#241f1b;
+  --claude:#d97757;         /* Claude brand clay-orange — THE accent */
+  --claude-hi:#e8967a;      /* brighter ember */
+  --cream:#f5f4ef;
+  --dim:#8a8175;            /* muted warm grey — terminal grain */
+  --faint:#5c5850;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+/* SQUARE full-bleed: the warm-dark fills the entire frame, no floating window. */
+html,body{height:100%;width:100%;background:var(--term);font-family:JBM,"DejaVu Sans Mono",monospace}
+.wrap{width:100%;height:100%;margin:0}
+.frame{overflow:hidden;background:var(--term);width:100%;height:100%}
+
+.stage{height:100%;width:100%;position:relative;overflow:hidden;
+  display:flex;align-items:center;justify-content:center}
+/* the two big words ARE one monospace text grid; every cell is a pure f(x,y,t).
+   scaleX(1.6) SQUARES the character cell: JBM's advance width is ~0.6em but the
+   line box is ~1em, so a 1-cell vertical stroke would render ~1.6× THINNER than a
+   1-cell horizontal bar. Stretching x by 1.6 (with line-height = font-size) makes
+   both strokes equal thickness — and gives the block letters proper proportions.
+   Centred via flex on all four sides (full-bleed warm-dark, balanced margins). */
+pre#grid{font-size:11px;line-height:11px;letter-spacing:0;white-space:pre;margin:0;
+  color:var(--dim);transform:scaleX(1.6);transform-origin:center center;
+  position:relative;top:-24px}                 /* wordmark centred; small lift leaves room for the tagline below */
+pre#grid .k{color:var(--claude);text-shadow:0 0 5px rgba(217,119,87,.22)}  /* solid clay letter */
+pre#grid .g{color:var(--dim)}                                             /* grey grain */
+pre#grid .gf{color:var(--faint)}                                          /* faint grain (depth) */
+pre#grid .b{color:var(--claude)}                                          /* clay speckle */
+pre#grid .gh{color:var(--claude-hi)}                                      /* rare bright ember */
+
+/* tagline — types in beneath the wordmark during the calm hold. Fixed-width box
+   (in monospace ch) centred as a block, text LEFT-aligned: the line occupies its
+   final footprint from the first keystroke and grows rightward (real typing),
+   instead of re-centring / spreading from the middle. Positioned relative to the
+   vertical centre so it stays balanced under the wordmark in the square frame. */
+.tag{position:absolute;left:50%;top:calc(50% + 118px);transform:translateX(-50%);
+  width:43ch;text-align:left;
+  color:var(--cream);font-size:17px;letter-spacing:0;white-space:pre}
+.tag .a{color:var(--claude)}
+.tag .cur{display:inline-block;width:9px;height:17px;background:var(--claude);
+  transform:translateY(3px);margin-left:2px}
+</style></head>
+<body>
+<div class="wrap"><div class="frame">
+  <div class="stage"><pre id="grid"></pre><div class="tag" id="tag"></div></div>
+</div></div>
+
+<script>
+// ============================================================================
+//  STACKED WORDMARK CROSSOVER
+//  Both words on screen the whole time, big & bold, stacked:
+//     CLAUDE (top)  — still -> noise : starts crisp solid clay, its FILL
+//                     deteriorates into scrolling terminal grain (alive at end).
+//     REVIEW (bottom)— noise -> still : starts as scrolling grain, RESOLVES
+//                     (sharpens/settles) into crisp solid clay (calm at end).
+//  The effect is CLIPPED to the letterforms — outside the glyphs the stage is
+//  clean warm-dark. Letters stay put & legible throughout; the texture lives
+//  inside them. End state = CLAUDE noisy / REVIEW calm  ==  the product.
+//  All softness is the ' ' ░ ▒ ▓ █ glyph ramp + a sin-hash scrolling field.
+//  Pure function of (x,y,t): no CSS blur, no Math.random, no Date. Deterministic.
+// ============================================================================
+
+// ---- 5x7 bitmap glyphs -> block TEXT ----
+var F={
+ c:["01111","10001","10000","10000","10000","10001","01111"],
+ l:["10000","10000","10000","10000","10000","10000","11111"],
+ a:["01110","10001","10001","11111","10001","10001","10001"],
+ u:["10001","10001","10001","10001","10001","10001","01111"],
+ d:["11110","10001","10001","10001","10001","10001","11110"],
+ e:["11111","10000","10000","11110","10000","10000","11111"],
+ r:["11110","10001","10001","11110","10100","10010","10001"],
+ v:["10001","10001","10001","10001","01010","01010","00100"],
+ i:["11111","00100","00100","00100","00100","00100","11111"],
+ w:["10001","10001","10001","10001","10101","10101","01010"]
+};
+var GH=7, GUT=2;                       // glyph height, inter-letter gutter (cols)
+var WORD_W = 6*5 + 5*GUT;              // 6-letter word width in cells = 40
+// each word gets a rectangular NOISE BAND a little wider/taller than the glyphs,
+// so grain fills the whole rectangle (around & between letters), not just strokes.
+var BAND_PADX = 3;                     // extra cols of band on each side of the word
+var BAND_PADY = 0;                     // band hugs glyph height (no grain rows above/below → words stay tight)
+var BAND_W = WORD_W + BAND_PADX*2;     // 46
+var BAND_H = GH + BAND_PADY*2;         // 7
+var GAP = 1;                           // one empty row between the two words
+var COLS = BAND_W;                     // 46
+var ROWS = BAND_H + GAP + BAND_H;      // 15
+
+var C_BAND_TOP = 0;
+var R_BAND_TOP = BAND_H + GAP;         // 10
+// glyphs sit inset by the band padding
+var C_INK_TOP = C_BAND_TOP + BAND_PADY;
+var R_INK_TOP = R_BAND_TOP + BAND_PADY;
+
+// ink mask: which cells are the letter strokes (word centred in the band)
+function wordMask(word, inkTop){
+  var start = BAND_PADX + Math.floor((WORD_W - (word.length*5 + (word.length-1)*GUT))/2);
+  var cells={};
+  for(var y=0;y<GH;y++){
+    var cx=start;
+    for(var i=0;i<word.length;i++){
+      var g=F[word[i]];
+      for(var x=0;x<5;x++) if(g[y][x]==='1') cells[(inkTop+y)+','+(cx+x)]=true;
+      cx += 5+GUT;
+    }
+  }
+  return cells;
+}
+var INK_C = wordMask("claude", C_INK_TOP);
+var INK_R = wordMask("review", R_INK_TOP);
+// band membership: a cell belongs to the CLAUDE band, the REVIEW band, or neither.
+function bandOf(r){
+  if(r>=C_BAND_TOP && r<C_BAND_TOP+BAND_H) return 'c';
+  if(r>=R_BAND_TOP && r<R_BAND_TOP+BAND_H) return 'r';
+  return null;
+}
+
+// ================= deterministic field =================
+function hash(x,y){ var h=Math.sin(x*127.1 + y*311.7)*43758.5453; return h-Math.floor(h); }
+function clamp(x,a,b){return x<a?a:(x>b?b:x);}
+function smooth(a,b,x){ var t=clamp((x-a)/(b-a),0,1); return t*t*(3-2*t); }
+
+// ---- THE FIELD SEQUENCE ----
+//  0.0–0.6  CLAUDE solid on clean dark (steady Claude Code foundation)
+//  0.6–1.7  noise TIDE rises from the bottom (below REVIEW) up behind the top of
+//           CLAUDE — the terminal's scrolling stream flooding in behind both words
+//  1.7–2.4  full field runs behind both words; CLAUDE stays solid in front
+//  2.4–3.4  REVIEW assembles out of the grain
+//  3.3–4.3  scroll slows to a stop and the grain clears to calm (the payoff)
+function fillFrac(t){ return smooth(0.60, 1.70, t); }      // tide height 0->1 (bottom->top)
+function clearAmt(t){ return 1 - smooth(3.25, 4.30, t); }  // 1 running -> 0 cleared/calm
+function reviewResolve(t){ return smooth(2.35, 3.35, t); } // REVIEW: grain -> solid clay
+
+// scroll velocity starts at 0, peaks mid, returns to 0 (picks up, then slowly stops):
+// smooth() has zero slope at both ends, so its derivative is a bell — exactly that.
+function scrollPos(t){ return 64.0*smooth(0.50, 4.10, t); }
+
+// The grain field is re-sampled on a COARSE time step (not every render frame): the
+// transcript scrolls in discrete line-jumps like a real terminal, and — crucially —
+// consecutive GIF frames that fall in the same step are byte-identical, so the GIF
+// encoder dedupes them. Without this the full-screen grain changes every pixel every
+// frame and the intro alone balloons the file ~5×. STEP≈2 frames at 13fps.
+// ?gstep=<sec> sets the grain time-step. 0 (default) = smooth per-frame grain, for
+// the high-fidelity MP4. The GIF export passes a larger step (e.g. 0.152) so that
+// consecutive GIF frames dedupe and the file stays small.
+var GRAIN_STEP = (function(){ var g=parseFloat(new URLSearchParams(location.search).get('gstep')); return isNaN(g)?0:g; })();
+function gt(t){ return GRAIN_STEP>0 ? Math.round(t/GRAIN_STEP)*GRAIN_STEP : t; }
+
+// per-row noise amplitude: the rising tide (rows at/below the fill line are covered,
+// with a soft ~1-row edge) times the end clear. Row 0 = top of CLAUDE, last row =
+// bottom of REVIEW, so f: 0 = empty, 1 = flooded top-to-bottom.
+function rowNoise(r,t){
+  var f=fillFrac(t);
+  if(f<=0) return 0;
+  var fillLevel = ROWS*(1-f);              // rows with r >= fillLevel are covered
+  var cover = clamp((r+1)-fillLevel, 0, 1);
+  return cover*clearAmt(t);
+}
+
+// ---- scrolling TRANSCRIPT LINES: each absolute scrolled row R is a text line
+// with a hashed indent, length and fill density. A band cell is "lit" only inside
+// that line's span AND if its per-cell hash falls under the line density — so lit
+// cells cluster into word-like runs with gaps, and the whole thing scrolls up. ----
+function lineProfile(R){
+  var s1=hash(R*0.317, 11.3), s2=hash(R*0.713, 4.10), s3=hash(R*1.911, 2.20);
+  var indent = Math.floor(s1*s1*9);
+  var len = 8 + Math.floor(s2*(BAND_W-indent-4));
+  return {indent:indent, end:Math.min(BAND_W, indent+len), dens:0.55+0.40*s3};
+}
+// grain brightness at column c of screen row `row`, scaled by noise amplitude L.
+// Returns 0 for a gap cell (stays warm-dark). Lit cells ride the ░▒▓ ramp.
+function grainVal(c, row, t, L){
+  if(L<=0) return 0;
+  var R = Math.floor(row + scrollPos(t));
+  var lp = lineProfile(R);
+  if(c < lp.indent || c >= lp.end) return 0;         // between-word gap
+  var n = hash(c*1.7+3.0, R*2.3);
+  if(n >= lp.dens*L) return 0;                        // unlit cell within the line
+  return (0.30 + n*0.42) * (0.45 + 0.55*L);           // brightness grows with L
+}
+function grainClass(bc, row, t){
+  var R = Math.floor(row + scrollPos(t));
+  var k = hash(bc*3.1+9.0, R*1.37+2.0);
+  if(k>0.955) return 'gh';   // rare bright ember
+  if(k>0.87)  return 'b';    // clay speckle
+  if(k<0.12)  return 'gf';   // faint (depth)
+  return 'g';                // dim grey majority
+}
+function glyphOf(v){
+  if(v<=0.12) return ' ';
+  if(v<=0.32) return '░';
+  if(v<=0.55) return '▒';
+  if(v<=0.78) return '▓';
+  return '█';
+}
+function cellHTML(ch, cls){ return ch===' ' ? ' ' : '<span class="'+cls+'">'+ch+'</span>'; }
+
+function renderGrid(t){
+  var rev=reviewResolve(t);                   // 0 grain -> 1 solid clay (REVIEW)  [smooth]
+  var tg=gt(t);                                // stepped time for the grain (GIF-friendly)
+  var out=[];
+  for(var r=0;r<ROWS;r++){
+    var L=rowNoise(r,t);                       // rising-tide noise amplitude [smooth envelope]
+    var line='';
+    for(var c=0;c<COLS;c++){
+      var inkC=INK_C[r+','+c], inkR=INK_R[r+','+c];
+      var g=grainVal(c,r,tg,L);                // unified scrolling grain (stepped time)
+      if(inkC){
+        // CLAUDE: the steady foundation — always solid clay, in FRONT of the field.
+        line += cellHTML('█','k');
+      } else if(inkR){
+        // REVIEW: assembles out of the grain. Below its own threshold it's still
+        // grain; as `rev` rises each cell snaps to solid clay -> the word condenses.
+        var dR = hash(c*1.9, r*2.7);
+        if(dR < rev)      line += cellHTML('█','k');
+        else if(g>0)      line += cellHTML(glyphOf(g), grainClass(c,r,tg));
+        else              line += ' ';
+      } else {
+        // background between/around the words: the unified scrolling grain field
+        if(g>0) line += cellHTML(glyphOf(g), grainClass(c,r,tg));
+        else    line += ' ';
+      }
+    }
+    out.push(line);
+  }
+  document.getElementById('grid').innerHTML = out.join('\n');
+}
+
+// tagline types in during the calm hold, once REVIEW has resolved.
+function blink(t){ return Math.floor(t*1.6)%2===0; }
+var TAG_A="Faster than HTML. ", TAG_B="Calmer than the terminal.";
+var TAG_RAW=TAG_A+TAG_B;
+function renderTag(t){
+  var el=document.getElementById('tag');
+  var start=3.45, dur=0.85;                    // fully typed ~4.30, reads during the hold
+  if(t<start){ el.innerHTML=''; return; }
+  var f=clamp((t-start)/dur,0,1);
+  var n=Math.floor(f*TAG_RAW.length);
+  var shown=TAG_RAW.slice(0,n);
+  // accent the second sentence (the "calm" half) in clay
+  var html;
+  if(shown.length<=TAG_A.length) html=shown;
+  else html=TAG_A+'<span class="a">'+shown.slice(TAG_A.length)+'</span>';
+  el.innerHTML = html + ((f<1||blink(t)) ? '<span class="cur"></span>' : '');
+}
+
+function seek(t){ renderGrid(t); renderTag(t); }
+
+var q=new URLSearchParams(location.search);
+var t=parseFloat(q.get('t')); if(isNaN(t)) t=0.3;
+// ?anim=1 -> real-time playback loop (preview only; capture uses ?t=<sec> static frames)
+if(q.get('anim')){
+  var END=4.6, HOLD=1.1;
+  document.fonts.ready.then(function(){
+    var t0=null;
+    function frame(ts){
+      if(t0===null) t0=ts;
+      var e=(ts-t0)/1000;
+      seek(Math.min(e, END));
+      if(e < END+HOLD) requestAnimationFrame(frame); else { t0=null; requestAnimationFrame(frame); }
+    }
+    requestAnimationFrame(frame);
+    document.body.setAttribute('data-ready','1');
+  });
+} else {
+  document.fonts.ready.then(function(){ seek(t); document.body.setAttribute('data-ready','1'); });
+  seek(t);
+}
+</script>
+</body></html>
