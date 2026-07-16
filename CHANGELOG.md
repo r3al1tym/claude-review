@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] — 2026-07-15
+
+### Fixed
+- **Questions are now visible.** When Claude asks a multiple-choice question via
+  the `AskUserQuestion` tool, the whole message — the question and its options —
+  lives inside the tool call, with no accompanying text block. The parser only
+  read text blocks, so the pane showed the *previous* turn's stale answer, or went
+  blank ("no response yet — Claude is working") while Claude was in fact blocked
+  waiting on your choice. `AskUserQuestion` is now a first-class `question` surface
+  that leads over any stale prior text and renders the question, each option's
+  label + description, and a multi-select hint. This is the common shape for a
+  grilling/decision session, where following the questions is the whole point.
+
 ## [0.4.0] — 2026-07-13
 
 Correctness and safety hardening for a wider audience. A review surface has to be

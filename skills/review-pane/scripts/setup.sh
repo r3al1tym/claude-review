@@ -23,7 +23,7 @@ set -uo pipefail
 
 LOCAL_BIN="$HOME/.local/bin"
 VENV_DIR="$HOME/.local/share/claude-review-venv"
-PIN="v0.4.0"                                   # pin the GitHub install to a release
+PIN="v0.4.1"                                   # pin the GitHub install to a release
 REPO_GIT="git+https://github.com/r3al1tym/claude-review@${PIN}"
 NET_TIMEOUT=120                                # wall-clock bound on any network install
 ALLOW_BREAK="${CLAUDE_REVIEW_ALLOW_BREAK_SYSTEM:-}"

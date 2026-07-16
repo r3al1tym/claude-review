@@ -25,7 +25,7 @@ Then just ask Claude *"open a review pane for this session"* — it resolves the
 ### Or install the CLI directly
 
 ```bash
-pipx install git+https://github.com/r3al1tym/claude-review@v0.4.0
+pipx install git+https://github.com/r3al1tym/claude-review@v0.4.1
 claude-review
 ```
 

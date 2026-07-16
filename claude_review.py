@@ -15,7 +15,7 @@ plan, and task list in the other — without the scrollback noise.
 
 In the review view:
   f          freeze / unfreeze auto-update (hold the view while Claude works)
-  Tab        cycle surfaces (response / plan / tasks), when present
+  Tab        cycle surfaces (response / question / plan / tasks), when present
   ↑/↓ or j/k scroll line  ·  space / b  scroll page  ·  g / G  top / bottom
   s          switch session (back to picker)
   r          refresh now (also unfreezes)  ·  q  quit
@@ -37,7 +37,7 @@ import sys, os, re, json, glob, time, shutil
 # Single source of truth for the version when running from a source checkout
 # (pip-installed runs read it from package metadata instead). Kept in sync with
 # pyproject.toml by a release-hygiene test.
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 # termios/tty/select are POSIX-only and only needed for the interactive TUI.
 # Imported lazily inside RawInput so that --help, --version, and -l still work
@@ -194,6 +194,45 @@ def _reconstruct_tasks(lines):
             for i in sorted(tasks)] or None
 
 
+def render_ask(questions):
+    """Turn an AskUserQuestion tool input into a Markdown string for the response
+    surface. The tool carries the entire prompt — one or more questions, each with
+    a header and labelled options (label + description) — and Claude Code renders a
+    picker the user answers. The transcript has no text block for any of it, so
+    without this the pane shows the previous turn's stale text (or goes blank) while
+    Claude is actually blocked waiting on a choice. Returns None if there's nothing
+    askable, so the caller leaves `ask` unset."""
+    if not isinstance(questions, list):
+        return None
+    blocks = []
+    for qi in questions:
+        if not isinstance(qi, dict):
+            continue
+        header = (qi.get("header") or "").strip()
+        qtext = (qi.get("question") or "").strip()
+        if not qtext and not header:
+            continue
+        lines = []
+        if header:
+            lines.append(f"### {header}")
+        if qtext:
+            lines.append(qtext)
+        for op in qi.get("options") or []:
+            if isinstance(op, dict):
+                label = (op.get("label") or "").strip()
+                desc = (op.get("description") or "").strip()
+                if label and desc:
+                    lines.append(f"- **{label}** — {desc}")
+                elif label or desc:
+                    lines.append(f"- **{label or desc}**")
+            elif isinstance(op, str) and op.strip():
+                lines.append(f"- **{op.strip()}**")
+        if qi.get("multiSelect"):
+            lines.append("_(select all that apply)_")
+        blocks.append("\n\n".join(lines))
+    return "\n\n---\n\n".join(blocks) or None
+
+
 def parse_turn(path):
     """Extract the CURRENT turn: the last real user prompt and everything the
     assistant produced after it (from the tail), plus the session-wide task list
@@ -201,6 +240,7 @@ def parse_turn(path):
     q = None
     texts = []
     plan = None
+    ask = None
     model = None
     assistant_seen = 0    # how many assistant records appeared in this tail
     parsed_ok = False     # did any assistant content block match our known schema
@@ -217,7 +257,7 @@ def parse_turn(path):
             pt = _prompt_text(c)
             if pt is not None:
                 q = pt
-                texts, plan = [], None              # new turn resets (tasks persist)
+                texts, plan, ask = [], None, None   # new turn resets (tasks persist)
         elif t == "assistant":
             assistant_seen += 1
             m = o.get("message") or {}
@@ -234,6 +274,14 @@ def parse_turn(path):
                     texts.append(b["text"])
                 elif b.get("type") == "tool_use" and b.get("name") == "ExitPlanMode":
                     plan = (b.get("input") or {}).get("plan")
+                elif b.get("type") == "tool_use" and b.get("name") == "AskUserQuestion":
+                    # The whole message — question(s) + options — lives INSIDE the
+                    # tool input, with (almost always) no sibling text block. Capture
+                    # it so the pane shows the decision Claude is blocked on instead
+                    # of the prior turn's stale text (or nothing at all).
+                    rendered = render_ask((b.get("input") or {}).get("questions"))
+                    if rendered:
+                        ask = rendered
     try:
         mtime = os.path.getmtime(path)
     except OSError:
@@ -245,6 +293,7 @@ def parse_turn(path):
         "question": q,
         "text": texts[-1] if texts else None,
         "plan": plan,
+        "ask": ask,
         "tasks": tasklist,
         "model": model,
         "mtime": mtime,
@@ -498,6 +547,11 @@ def build_surfaces(turn):
     out = []
     if turn["plan"]:
         out.append(("plan", Markdown(sanitize_body(turn["plan"]))))
+    # An AskUserQuestion this turn IS the message — it's what Claude is blocked on,
+    # so it leads (over any prior-turn text) as the primary surface. Any sibling
+    # text still shows as its own tab.
+    if turn.get("ask"):
+        out.append(("question", Markdown(sanitize_body(turn["ask"]))))
     if turn["text"]:
         out.append(("response", Markdown(sanitize_body(turn["text"]))))
     if turn["tasks"]:
@@ -702,7 +756,7 @@ def picker(proj_dir, rawin):
 # ----------------------------------------------------------------------------- review loop
 def turn_sig(turn):
     """Identity of the current turn — changes when a new prompt or response lands."""
-    return (turn["question"], turn["text"], turn["plan"],
+    return (turn["question"], turn["text"], turn["plan"], turn.get("ask"),
             json.dumps(turn["tasks"]) if turn["tasks"] else None)
 
 
@@ -711,6 +765,8 @@ def _surface_raw_text(turn, label):
     unwrapped and unstyled, the actual text not the rendered view."""
     if label == "plan":
         return turn.get("plan") or ""
+    if label == "question":
+        return turn.get("ask") or ""
     if label == "tasks":
         return "\n".join(f"[{t.get('status')}] {t.get('content')}"
                          for t in (turn.get("tasks") or []))

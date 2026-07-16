@@ -184,6 +184,95 @@ def test_tasks_persist_across_a_new_prompt(tmp_path):
     assert turn["tasks"] == [{"status": "pending", "content": "lingering task"}]
 
 
+# --------------------------------------------------------------------------- AskUserQuestion
+# AskUserQuestion carries the ENTIRE message (question + options) inside the tool
+# input, with no sibling text block. Without a dedicated branch the pane showed
+# the previous turn's stale text — or went blank — while Claude was blocked on a
+# choice. These lock in that the question becomes a first-class surface.
+def _ask_block(*questions):
+    return tool_block("AskUserQuestion", questions=list(questions))
+
+
+def test_ask_user_question_becomes_a_surface(tmp_path):
+    f = tmp_path / "s.jsonl"
+    write_jsonl(f, [
+        user("give me the options again"),
+        assistant([_ask_block({
+            "header": "URL fix",
+            "question": "How should the TLDR handle URLs?",
+            "options": [
+                {"label": "Mask + splice", "description": "guarantees a live link"},
+                {"label": "Prompt only", "description": "cheaper, less robust"},
+            ],
+        })]),
+    ])
+    turn = cr.parse_turn(str(f))
+    assert turn["ask"] is not None
+    assert "How should the TLDR handle URLs?" in turn["ask"]
+    assert "Mask + splice" in turn["ask"] and "guarantees a live link" in turn["ask"]
+    # it leads as the primary surface (labelled "question")
+    labels = [lbl for lbl, _ in cr.build_surfaces(turn)]
+    assert labels[0] == "question"
+
+
+def test_ask_leads_over_stale_prior_text(tmp_path):
+    # a prior-turn answer must NOT mask the question Claude is now blocked on.
+    f = tmp_path / "s.jsonl"
+    write_jsonl(f, [
+        user("do the thing"),
+        assistant([text_block("Here's the analysis, but it decides the fix:")]),
+        assistant([_ask_block({"header": "Pick", "question": "Which way?",
+                               "options": [{"label": "A", "description": "first"}]})]),
+    ])
+    turn = cr.parse_turn(str(f))
+    labels = [lbl for lbl, _ in cr.build_surfaces(turn)]
+    assert labels[0] == "question"          # question first, stale text demoted
+    assert "response" in labels             # the prior text is still available as a tab
+    assert turn["text"] == "Here's the analysis, but it decides the fix:"
+
+
+def test_ask_resets_on_a_new_prompt(tmp_path):
+    # once answered, a new user prompt clears the question like text/plan.
+    f = tmp_path / "s.jsonl"
+    write_jsonl(f, [
+        user("q1"),
+        assistant([_ask_block({"header": "H", "question": "old question?",
+                               "options": [{"label": "x", "description": "y"}]})]),
+        user("A"),
+        assistant([text_block("moving on")]),
+    ])
+    turn = cr.parse_turn(str(f))
+    assert turn["ask"] is None
+    assert turn["text"] == "moving on"
+
+
+def test_ask_multi_question(tmp_path):
+    f = tmp_path / "s.jsonl"
+    write_jsonl(f, [
+        user("q"),
+        assistant([_ask_block(
+            {"header": "One", "question": "first?", "options": [{"label": "a", "description": "d"}]},
+            {"header": "Two", "question": "second?", "options": [{"label": "b", "description": "e"}], "multiSelect": True},
+        )]),
+    ])
+    ask = cr.parse_turn(str(f))["ask"]
+    assert "first?" in ask and "second?" in ask
+    assert "select all that apply" in ask     # multiSelect hint rendered
+
+
+def test_ask_empty_input_is_ignored(tmp_path):
+    # a malformed/empty AskUserQuestion must not create a blank surface.
+    f = tmp_path / "s.jsonl"
+    write_jsonl(f, [user("q"), assistant([tool_block("AskUserQuestion", questions=[])])])
+    turn = cr.parse_turn(str(f))
+    assert turn["ask"] is None
+
+
+def test_surface_raw_text_yanks_the_question(tmp_path):
+    turn = {"ask": "### H\n\nWhich way?", "text": "", "plan": "", "tasks": []}
+    assert cr._surface_raw_text(turn, "question") == "### H\n\nWhich way?"
+
+
 def test_malformed_lines_are_skipped(tmp_path):
     f = tmp_path / "s.jsonl"
     f.write_text(
