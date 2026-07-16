@@ -4,17 +4,21 @@
 // headless Chromium (fast; avoids cold-launching chromium per frame under snapfuse).
 // Both files are deterministic: they read ?t=<sec> and render that exact instant.
 //
-// Usage: node capture-combined.mjs <chrome-bin> <demo-dir-abs> <out-frames-dir> <fps> <introDur> <termDur> [gstep]
+// Usage: node capture-combined.mjs <chrome-bin> <demo-dir-abs> <out-frames-dir> <fps> <introDur> <termDur> [gstep] [holdDur]
 //   gstep (optional): grain time-step passed to intro.html (?gstep=). 0/omitted = smooth per-frame
 //   grain (for the high-fidelity MP4). Pass e.g. 0.152 only if capturing frames destined ONLY for a GIF.
+//   holdDur (optional, default 1): seconds to freeze on the intro's final resolved frame before the
+//   terminal scene — a beat to let the wordmark + tagline read. 0 = no hold (straight cut).
 import { spawn } from 'node:child_process'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { setTimeout as sleep } from 'node:timers/promises'
 
-const [chrome, demoDir, outDir, fpsS, introS, termS, gstepS] = process.argv.slice(2)
+const [chrome, demoDir, outDir, fpsS, introS, termS, gstepS, holdS] = process.argv.slice(2)
 const FPS = Number(fpsS)
 const GSTEP = gstepS ? Number(gstepS) : 0
+const HOLD_DUR = holdS !== undefined ? Number(holdS) : 1
 const INTRO_FRAMES = Math.round(Number(introS) * FPS)
+const HOLD_FRAMES = Math.round(HOLD_DUR * FPS)
 const TERM_FRAMES = Math.round(Number(termS) * FPS)
 const PORT = 9321
 
@@ -84,10 +88,17 @@ async function shoot(fileBase, t, extra = '') {
 }
 
 const introExtra = GSTEP > 0 ? `&gstep=${GSTEP}` : ''
-console.log(`intro: ${INTRO_FRAMES} frames, terminal: ${TERM_FRAMES} frames @ ${FPS}fps  (gstep=${GSTEP})`)
+console.log(`intro: ${INTRO_FRAMES} frames, hold: ${HOLD_FRAMES} frames, terminal: ${TERM_FRAMES} frames @ ${FPS}fps  (gstep=${GSTEP})`)
 for (let i = 0; i < INTRO_FRAMES; i++) {
   await shoot('intro.html', Math.round((i / FPS) * 1000) / 1000, introExtra)
   if (i % 30 === 0) console.log(`  intro frame ${i}`)
+}
+// Hold on the intro's final resolved frame (wordmark + tagline settled) — a beat
+// before the terminal scene. Re-shoots the exact last intro instant HOLD_FRAMES times.
+const holdT = Math.round(((INTRO_FRAMES - 1) / FPS) * 1000) / 1000
+for (let h = 0; h < HOLD_FRAMES; h++) {
+  await shoot('intro.html', holdT, introExtra)
+  if (h % 30 === 0) console.log(`  hold frame ${h}`)
 }
 for (let j = 0; j < TERM_FRAMES; j++) {
   await shoot('anim.html', Math.round((j / FPS) * 1000) / 1000)

@@ -20,9 +20,10 @@ CHROME="${CHROME:-$(command -v chromium-browser || command -v chromium || comman
 
 INTRO_DUR=4.6
 TERM_DUR=13.9
+HOLD_DUR=1    # beat on the intro's resolved wordmark+tagline before the terminal scene
 
 echo "== capturing MP4 frames (30fps, smooth grain) =="
-node capture-combined.mjs "$CHROME" "$PWD" /tmp/cr-mp4-frames 30 "$INTRO_DUR" "$TERM_DUR" 0
+node capture-combined.mjs "$CHROME" "$PWD" /tmp/cr-mp4-frames 30 "$INTRO_DUR" "$TERM_DUR" 0 "$HOLD_DUR"
 
 echo "== encoding docs/demo.mp4 (H.264 crf16, yuv420p, faststart) =="
 ffmpeg -y -framerate 30 -i /tmp/cr-mp4-frames/f%04d.png \
@@ -30,7 +31,7 @@ ffmpeg -y -framerate 30 -i /tmp/cr-mp4-frames/f%04d.png \
   -vf "scale=1080:1080:flags=lanczos" ../docs/demo.mp4
 
 echo "== capturing GIF frames (13fps, stepped grain) =="
-node capture-combined.mjs "$CHROME" "$PWD" /tmp/cr-gif-frames 13 "$INTRO_DUR" "$TERM_DUR" 0.152
+node capture-combined.mjs "$CHROME" "$PWD" /tmp/cr-gif-frames 13 "$INTRO_DUR" "$TERM_DUR" 0.152 "$HOLD_DUR"
 
 echo "== encoding docs/demo.gif (960px, 160-colour palette) =="
 ffmpeg -y -framerate 13 -i /tmp/cr-gif-frames/f%04d.png \
