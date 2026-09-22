@@ -21,7 +21,7 @@ In the review view:
   ←/→ or h/l or [/]  step back / forward through the session's turns (earlier answers)
   s          switch session (back to picker)
   r          refresh now (unfreezes, returns to the latest turn)  ·  q  quit
-  ?          the key guide, with the session id, model and project
+  ?          the guide: what the pane is for, every key, and diagnostics
 
 Project slug: by default Claude Code stores transcripts under
 ~/.claude/projects/<slug>, where <slug> is the project's absolute path with EVERY
@@ -40,7 +40,7 @@ import sys, os, re, json, glob, time, shutil
 # Single source of truth for the version when running from a source checkout
 # (pip-installed runs read it from package metadata instead). Kept in sync with
 # pyproject.toml by a release-hygiene test.
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 
 # termios/tty/select are POSIX-only and only needed for the interactive TUI.
 # Imported lazily inside RawInput so that --help, --version, and -l still work
@@ -717,10 +717,12 @@ def _help_section(title, rows, chips=True):
     return Group(*lines)
 
 
-HELP_INTRO = ("claude review pins to one Claude Code session and shows its latest reply, "
+HELP_INTRO = (" pins to one Claude Code session and shows its latest reply, "
               "rendered for reading, in a pane beside the one you drive. It follows the live "
               "turn until you freeze it or step back into an earlier turn. It only reads the "
               "transcript; nothing here writes to the session.")
+C_DIAG_LABEL = "grey27"        # diagnostics recede a full step below the key guide
+C_DIAG_VALUE = "grey37"
 
 
 def help_renderable(turn, width, status, nav=None):
@@ -731,7 +733,10 @@ def help_renderable(turn, width, status, nav=None):
     wide = width >= HELP_TWO_COL_MIN
     rule = Text("─" * max(1, width), style=C_RULE)
 
-    intro = Text(HELP_INTRO, style=C_QUESTION)
+    # The product name leads, in the wordmark badge; the sentences run on from it.
+    intro = Text()
+    intro.append(" claude review ", style=C_BADGE)
+    intro.append(HELP_INTRO, style=C_QUESTION)
 
     sections = [_help_section(title, rows, chips=wide) for title, rows in HELP_GROUPS]
     if wide:
@@ -759,21 +764,24 @@ def help_renderable(turn, width, status, nav=None):
     tilde = lambda p: ("~" + p[len(home):]) if p and p.startswith(home) else p
     turns = turn.get("turns") or []
     age = fmt_age(max(0, time.time() - turn["mtime"])) if turn.get("mtime") else "?"
+    # Muted a full step below the key guide: this block is for when something is
+    # off, so it must never compete with the keys for the eye. Only the frozen
+    # state keeps its colour (it is the one state you set).
     facts = [
-        ("state", f"{dot} {word}", style),
-        ("session", oneline(turn.get("id") or "?"), C_QUESTION),
-        ("model", short_model(turn.get("model")), C_QUESTION),
-        ("project", oneline(tilde(cwd)) if cwd else "?", C_QUESTION),
-        ("transcript", oneline(tilde(turn.get("path") or "?")), C_QUESTION),
+        ("state", f"{dot} {word}", C_FROZEN if word == "frozen" else C_DIAG_VALUE),
+        ("session", oneline(turn.get("id") or "?"), C_DIAG_VALUE),
+        ("model", short_model(turn.get("model")), C_DIAG_VALUE),
+        ("project", oneline(tilde(cwd)) if cwd else "?", C_DIAG_VALUE),
+        ("transcript", oneline(tilde(turn.get("path") or "?")), C_DIAG_VALUE),
         ("turns", (f"{nav['index'] + 1} of {nav['count']} on screen" if nav and nav.get("count")
-                   else str(len(turns))), C_QUESTION),
-        ("last write", f"{age} ago", C_QUESTION),
+                   else str(len(turns))), C_DIAG_VALUE),
+        ("last write", f"{age} ago", C_DIAG_VALUE),
     ]
-    diag = [Text("DIAGNOSTICS", style=C_HEAD)]
+    diag = [Text("DIAGNOSTICS", style=C_DIAG_LABEL)]
     labw = max(len(k) for k, _, _ in facts) + 2
     for k, v, st in facts:
         line = Text(no_wrap=True, overflow="ellipsis")
-        line.append(k.ljust(labw), style=C_META)
+        line.append(k.ljust(labw), style=C_DIAG_LABEL)
         line.append(v, style=st)
         diag.append(line)
 

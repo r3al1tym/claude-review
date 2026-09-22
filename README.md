@@ -25,7 +25,7 @@ Then just ask Claude *"open a review pane for this session"* — it resolves the
 ### Or install the CLI directly
 
 ```bash
-pipx install git+https://github.com/r3al1tym/claude-review@v0.5.1
+pipx install git+https://github.com/r3al1tym/claude-review@v0.5.2
 claude-review
 ```
 
@@ -51,7 +51,7 @@ claude-review -l              # list recent sessions and exit
 claude-review --help          # all flags and keys
 ```
 
-**Keys:** `?` shows them all in the pane. `Tab` surfaces · `y` copy the current surface · `f` freeze · `↑`/`↓` or `j`/`k` scroll (mouse wheel works too) · `space`/`b` page · `g`/`G` top/bottom · `←`/`→` (or `h`/`l`, `[`/`]`) earlier/later turn · `s` switch session · `r` refresh (back to the latest turn) · `q` quit.
+**Keys:** `?` opens the guide in the pane: what claude-review is for, every key grouped by intent, and a diagnostics block (session, model, project, transcript, turn, last write). `Tab` surfaces · `y` copy the current surface · `f` freeze · `↑`/`↓` or `j`/`k` scroll (mouse wheel works too) · `space`/`b` page · `g`/`G` top/bottom · `←`/`→` (or `h`/`l`, `[`/`]`) earlier/later turn · `s` switch session · `r` refresh (back to the latest turn) · `q` quit.
 
 **Reviewing another project:** run `claude-review` from the project directory, or pass `-p` an absolute path. If a lookup ever misses, run `ls ~/.claude/projects/` and pass the literal directory name with `-p`. If your `~/.claude` lives elsewhere, set `CLAUDE_CONFIG_DIR`. ([slug details](docs/troubleshooting.md))
 

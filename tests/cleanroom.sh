@@ -20,7 +20,7 @@
 set -uo pipefail
 
 CRV_REPO="${CRV_REPO:-https://github.com/r3al1tym/claude-review}"
-CRV_REF="${CRV_REF:-v0.5.1}"
+CRV_REF="${CRV_REF:-v0.5.2}"
 
 say() { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 ok()  { printf '  \033[1;32mPASS\033[0m %s\n' "$*"; }

@@ -4,12 +4,14 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.5.2] — 2026-09-22
 
 ### Changed
-- **`?` guide, reordered.** Opens with three sentences on what the pane is for,
-  then the key guide, then a DIAGNOSTICS block: one labelled line each for state,
-  session, model, project, transcript path, turn position and last write.
+- **`?` guide, reordered.** Opens with the product name in its badge and three
+  sentences on what the pane is for, then the key guide, then a muted
+  DIAGNOSTICS block: one labelled line each for state, session, model, project,
+  transcript path, turn position and last write. The diagnostics sit a full
+  brightness step below the keys so they never compete for the eye.
 
 ## [0.5.1] — 2026-09-22
 
