@@ -687,22 +687,34 @@ C_KEYCAP = C_BADGE             # keycap chip = the wordmark badge style
 C_HEAD = "bold grey62"         # section headers: small caps, one step above meta
 
 
-def _keycaps(keys):
+def _keycaps(keys, widths, chips=True):
+    """The keys of one row. As chips (inset badge, centred to the column width so
+    a group's chips stack as equal blocks) when there is room; as bright bold
+    text on a narrow pane, where chips on adjacent lines would merge into a bar."""
     t = Text(no_wrap=True)
     for i, k in enumerate(keys):
         if i:
             t.append(" ")
-        t.append(f" {k} ", style=C_KEYCAP)
+        if chips:
+            t.append(f" {k.center(widths[i])} ", style=C_KEYCAP)
+        else:
+            t.append(k.ljust(widths[i]), style="bold grey85")
     return t
 
 
-def _help_section(title, rows):
-    t = Table.grid(padding=(0, 2))
-    t.add_column(no_wrap=True)
-    t.add_column(style=C_QUESTION)
-    for keys, desc in rows:
-        t.add_row(_keycaps(keys), desc)
-    return Group(Text(title, style=C_HEAD), t)
+def _help_section(title, rows, chips=True):
+    ncol = max(len(keys) for keys, _ in rows)
+    widths = [max((len(keys[i]) for keys, _ in rows if len(keys) > i), default=1) for i in range(ncol)]
+    keyw = sum(w + (2 if chips else 0) for w in widths) + (ncol - 1)
+    lines = [Text(title, style=C_HEAD)]
+    for n, (keys, desc) in enumerate(rows):
+        if n and chips:
+            lines.append(Text(""))          # air between chip rows so they read as keys
+        line = _keycaps(keys, widths, chips)
+        line.pad_right(keyw - len(line.plain) + 2)
+        line.append(desc, style=C_QUESTION)
+        lines.append(line)
+    return Group(*lines)
 
 
 def help_renderable(turn, width, status):
@@ -737,7 +749,7 @@ def help_renderable(turn, width, status):
         card = Group(line1, line2)
     rule = Text("─" * max(1, width), style=C_RULE)
 
-    sections = [_help_section(title, rows) for title, rows in HELP_GROUPS]
+    sections = [_help_section(title, rows, chips=wide) for title, rows in HELP_GROUPS]
     if wide:
         # MOVE + SESSION left, HOLD + SURFACES right — the two long groups split.
         left = Group(sections[0], Text(""), sections[3])
