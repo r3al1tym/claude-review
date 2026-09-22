@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.1] — 2026-09-22
+
+### Changed
+- **The `?` overlay is a guide.** A session card first (state, id, model,
+  project), then the keys as inset keycap chips grouped by intent: MOVE, HOLD,
+  SURFACES, SESSION. Two columns on a pane 84+ columns wide, stacked below that.
+  Same greyscale palette; the keycap chip is the wordmark badge style.
+
 ## [0.5.0] — 2026-09-21
 
 ### Added

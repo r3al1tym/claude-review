@@ -883,3 +883,33 @@ def test_partial_trailing_line_is_not_consumed_until_complete(tmp_path):
     with open(f, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(assistant([text_block("partial")]))[20:] + "\n")
     assert cr.parse_turn(str(f))["text"] == "partial"
+
+
+def test_help_guide_is_two_columns_wide_and_one_column_narrow(tmp_path):
+    f = tmp_path / "abcdef12-3456.jsonl"
+    write_jsonl(f, [{"type": "user", "cwd": "/home/me/proj", "message": {"content": "q"}},
+                    assistant([text_block("a")], model="claude-opus-4-8")])
+    st = cr.parse_turn(str(f))
+    import shutil, os as _os
+    from rich.console import Console
+    real = shutil.get_terminal_size
+    outs = {}
+    try:
+        for W in (100, 60):
+            shutil.get_terminal_size = lambda *a, **k: _os.terminal_size((W, 30))
+            turn = cr.turn_at(st, 0)
+            screen, _ = cr.render_screen(turn, cr.build_surfaces(turn), 0, 0, help=True)
+            c = Console(width=W, record=True, force_terminal=False); c.print(screen)
+            outs[W] = c.export_text()
+    finally:
+        shutil.get_terminal_size = real
+    wide = [l for l in outs[100].splitlines() if "MOVE" in l]
+    assert wide and "HOLD" in wide[0]                      # side by side
+    narrow = [l for l in outs[60].splitlines() if "MOVE" in l]
+    assert narrow and "HOLD" not in narrow[0]              # stacked
+    for W in (100, 60):                                    # every key + fact present in both
+        for keys, desc in cr.HELP_KEYS:
+            assert desc in outs[W]
+        assert "abcdef12-3456" in outs[W] and "opus-4-8" in outs[W] and "/home/me/proj" in outs[W]
+    # the card repeats the state word and the header row is a hairline
+    assert "idle" in outs[100] or "working" in outs[100]

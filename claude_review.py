@@ -21,7 +21,7 @@ In the review view:
   ←/→ or h/l or [/]  step back / forward through the session's turns (earlier answers)
   s          switch session (back to picker)
   r          refresh now (unfreezes, returns to the latest turn)  ·  q  quit
-  ?          every key, with the session id, model and project
+  ?          the key guide, with the session id, model and project
 
 Project slug: by default Claude Code stores transcripts under
 ~/.claude/projects/<slug>, where <slug> is the project's absolute path with EVERY
@@ -40,7 +40,7 @@ import sys, os, re, json, glob, time, shutil
 # Single source of truth for the version when running from a source checkout
 # (pip-installed runs read it from package metadata instead). Kept in sync with
 # pyproject.toml by a release-hygiene test.
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 # termios/tty/select are POSIX-only and only needed for the interactive TUI.
 # Imported lazily inside RawInput so that --help, --version, and -l still work
@@ -656,43 +656,105 @@ def build_surfaces(turn):
     return out
 
 
-HELP_KEYS = [
-    ("← →  or  h l  or  [ ]", "earlier / later turn in this session"),
-    ("↑ ↓  or  j k", "scroll a line"),
-    ("space / b", "scroll a page"),
-    ("g / G", "top / bottom"),
-    ("Tab", "next surface (response · question · plan · tasks)"),
-    ("f", "freeze: hold this view while Claude keeps working"),
-    ("r", "refresh, unfreeze, and return to the latest turn"),
-    ("y", "copy the current surface to the clipboard"),
-    ("s", "switch to another session in this project"),
-    ("q", "quit"),
-    ("?", "close this"),
+# The `?` guide, grouped by intent. Each entry: (keycaps, what it does). A keycap
+# renders as an inset chip (the wordmark badge style), so keys read as objects
+# to scan for rather than letters in a sentence.
+HELP_GROUPS = [
+    ("MOVE", [
+        (("← →", "h l"), "earlier / later turn"),
+        (("↑ ↓", "j k"), "scroll a line"),
+        (("spc", "b"), "scroll a page"),
+        (("g", "G"), "top / bottom"),
+    ]),
+    ("HOLD", [
+        (("f",), "freeze this view"),
+        (("r",), "back to the live turn"),
+    ]),
+    ("SURFACES", [
+        (("⇥",), "next surface"),
+        (("y",), "copy this surface"),
+    ]),
+    ("SESSION", [
+        (("s",), "switch session"),
+        (("q",), "quit"),
+        (("?",), "close"),
+    ]),
 ]
+# Flat (keys, description) view of the guide, for tests and the -h text.
+HELP_KEYS = [("  ".join(keys), desc) for _, rows in HELP_GROUPS for keys, desc in rows]
+HELP_TWO_COL_MIN = 84          # content width at which the guide goes two-up
+C_KEYCAP = C_BADGE             # keycap chip = the wordmark badge style
+C_HEAD = "bold grey62"         # section headers: small caps, one step above meta
 
 
-def help_renderable(turn):
-    """The `?` overlay: every key with a descriptive label, then the facts the
-    footer no longer carries (session id, model, project). Descriptive because
-    there is room here; the footer keeps one-word cues only."""
-    t = Table.grid(padding=(0, 3))
-    t.add_column(style="grey85", no_wrap=True)
+def _keycaps(keys):
+    t = Text(no_wrap=True)
+    for i, k in enumerate(keys):
+        if i:
+            t.append(" ")
+        t.append(f" {k} ", style=C_KEYCAP)
+    return t
+
+
+def _help_section(title, rows):
+    t = Table.grid(padding=(0, 2))
+    t.add_column(no_wrap=True)
     t.add_column(style=C_QUESTION)
-    for k, d in HELP_KEYS:
-        t.add_row(k, d)
-    facts = Table.grid(padding=(0, 3))
-    facts.add_column(style=C_META, no_wrap=True)
-    facts.add_column(style=C_QUESTION)
+    for keys, desc in rows:
+        t.add_row(_keycaps(keys), desc)
+    return Group(Text(title, style=C_HEAD), t)
+
+
+def help_renderable(turn, width, status):
+    """The `?` guide: a session card (state, id, model, project), then the keys
+    grouped by intent, two columns when the pane is wide enough. `status` is
+    (dot, word, style) from the footer so the card repeats the live state."""
+    dot, word, style = status
+    wide = width >= HELP_TWO_COL_MIN
     # Every value here comes from the transcript or its filename, so each goes
     # through oneline(): rich does not strip ESC, and the overlay is the one
     # place a transcript's cwd / model / name reach the screen.
-    facts.add_row("session", oneline(turn.get("id") or "?"))
-    facts.add_row("model", short_model(turn.get("model")))
+    sid = oneline(turn.get("id") or "?")
+    model = short_model(turn.get("model"))
     cwd = _transcript_cwd(turn["path"]) if turn.get("path") else None
     if cwd:
-        facts.add_row("project", oneline(cwd))
-    # Facts first: on a short pane they are what you opened the overlay to check.
-    return Group(facts, Text(""), Text("keys", style="bold grey85"), Text(""), t)
+        home = os.path.expanduser("~")
+        cwd = oneline("~" + cwd[len(home):] if cwd.startswith(home) else cwd)
+    line1 = Text(no_wrap=True, overflow="ellipsis")
+    line1.append(f"{dot} {word}", style=style)
+    line1.append("    ", style=C_META)
+    line1.append(sid, style=C_QUESTION)
+    line2 = Text(no_wrap=True, overflow="ellipsis")
+    line2.append(model, style=C_QUESTION)
+    if cwd:
+        line2.append("  ·  ", style=C_META)
+        line2.append(cwd, style=C_QUESTION)
+    if wide:                       # one line: state · id · model · project
+        card = line1
+        card.append("  ·  ", style=C_META)
+        card.append_text(line2)
+    else:                          # narrow: the id on its own line, then model · project
+        card = Group(line1, line2)
+    rule = Text("─" * max(1, width), style=C_RULE)
+
+    sections = [_help_section(title, rows) for title, rows in HELP_GROUPS]
+    if wide:
+        # MOVE + SESSION left, HOLD + SURFACES right — the two long groups split.
+        left = Group(sections[0], Text(""), sections[3])
+        right = Group(sections[1], Text(""), sections[2])
+        cols = Table.grid(padding=(0, 6), expand=False)
+        cols.add_column()
+        cols.add_column()
+        cols.add_row(left, right)
+        body = cols
+    else:
+        parts = []
+        for i, sec in enumerate(sections):
+            if i:
+                parts.append(Text(""))
+            parts.append(sec)
+        body = Group(*parts)
+    return Group(card, Text(""), rule, Text(""), body)
 
 
 def inset_rule(W, gutter, left_text=None, left_style=C_META, right_text=None):
@@ -747,8 +809,8 @@ def render_screen(turn, surfaces, active, scroll, frozen=False, flash=None,
     # --- body: content fills the screen down to the chrome ---------------
     body_h = max(1, H - 3)                         # top rule, bottom rule, key row
     label, renderable = surfaces[active]
-    if help:                                       # the `?` overlay replaces the body
-        renderable = help_renderable(turn)
+    if help:                                       # the `?` guide replaces the body
+        renderable = help_renderable(turn, W - 2 * gutter, (dot, state, status_style))
     # Paging back through history: lead with the prompt this turn answered (dim,
     # one line) so an earlier answer is never read out of context. The latest
     # turn stays prompt-free — its prompt is right there in the driving pane.
