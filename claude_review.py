@@ -2,7 +2,8 @@
 """claude-review — a focused review surface for a single Claude Code session.
 
 Not a log tail. It pins to ONE session you choose and shows only the latest
-response, rendered for reading and decision-making, refreshing in place. Built
+response, rendered for reading and decision-making, refreshing in place; ←/→
+pages back through the session's earlier answers when you need one. Built
 for a split terminal: drive Claude Code in one pane, watch its latest answer,
 plan, and task list in the other — without the scrollback noise.
 
@@ -17,8 +18,10 @@ In the review view:
   f          freeze / unfreeze auto-update (hold the view while Claude works)
   Tab        cycle surfaces (response / question / plan / tasks), when present
   ↑/↓ or j/k scroll line  ·  space / b  scroll page  ·  g / G  top / bottom
+  ←/→ or h/l step back / forward through the session's turns (earlier answers)
   s          switch session (back to picker)
-  r          refresh now (also unfreezes)  ·  q  quit
+  r          refresh now (unfreezes, returns to the latest turn)  ·  q  quit
+  ?          every key, with the session id, model and project
 
 Project slug: by default Claude Code stores transcripts under
 ~/.claude/projects/<slug>, where <slug> is the project's absolute path with EVERY
@@ -37,7 +40,7 @@ import sys, os, re, json, glob, time, shutil
 # Single source of truth for the version when running from a source checkout
 # (pip-installed runs read it from package metadata instead). Kept in sync with
 # pyproject.toml by a release-hygiene test.
-__version__ = "0.4.1"
+__version__ = "0.5.0"
 
 # termios/tty/select are POSIX-only and only needed for the interactive TUI.
 # Imported lazily inside RawInput so that --help, --version, and -l still work
@@ -233,18 +236,21 @@ def render_ask(questions):
     return "\n\n---\n\n".join(blocks) or None
 
 
-def parse_turn(path):
-    """Extract the CURRENT turn: the last real user prompt and everything the
-    assistant produced after it (from the tail), plus the session-wide task list
-    (rebuilt from the whole file — see _reconstruct_tasks)."""
-    q = None
-    texts = []
-    plan = None
-    ask = None
+def _new_turn(question):
+    return {"question": question, "texts": [], "text": None, "plan": None,
+            "ask": None, "model": None}
+
+
+def parse_turns(lines):
+    """Split a record list into turns, oldest first. A turn is a real user prompt
+    plus everything the assistant produced after it (text, plan, question). Also
+    returns the format-drift signal (assistant records seen / any block parsed)."""
+    turns = []
+    cur = None
     model = None
-    assistant_seen = 0    # how many assistant records appeared in this tail
+    assistant_seen = 0    # how many assistant records appeared
     parsed_ok = False     # did any assistant content block match our known schema
-    for ln in tail_lines(path):
+    for ln in lines:
         try:
             o = json.loads(ln)
         except Exception:
@@ -253,15 +259,24 @@ def parse_turn(path):
             continue
         t = o.get("type")
         if t == "user":
+            # Harness-injected user records (an image the model read, a skill's
+            # body, a turn companion) are stamped isMeta and are NOT prompts:
+            # they arrive mid-turn and would split one answer into phantom turns.
+            if o.get("isMeta"):
+                continue
             c = (o.get("message") or {}).get("content")
             pt = _prompt_text(c)
             if pt is not None:
-                q = pt
-                texts, plan, ask = [], None, None   # new turn resets (tasks persist)
+                cur = _new_turn(pt)          # new turn (tasks persist session-wide)
+                turns.append(cur)
         elif t == "assistant":
             assistant_seen += 1
             m = o.get("message") or {}
             model = m.get("model") or model
+            if cur is None:                  # assistant text before any prompt we saw
+                cur = _new_turn(None)
+                turns.append(cur)
+            cur["model"] = model
             content = m.get("content")
             for b in content if isinstance(content, list) else []:
                 if not isinstance(b, dict):
@@ -271,9 +286,9 @@ def parse_turn(path):
                 if b.get("type") in ("text", "tool_use", "thinking", "redacted_thinking"):
                     parsed_ok = True
                 if b.get("type") == "text" and b.get("text", "").strip():
-                    texts.append(b["text"])
+                    cur["texts"].append(b["text"])
                 elif b.get("type") == "tool_use" and b.get("name") == "ExitPlanMode":
-                    plan = (b.get("input") or {}).get("plan")
+                    cur["plan"] = (b.get("input") or {}).get("plan")
                 elif b.get("type") == "tool_use" and b.get("name") == "AskUserQuestion":
                     # The whole message — question(s) + options — lives INSIDE the
                     # tool input, with (almost always) no sibling text block. Capture
@@ -281,26 +296,57 @@ def parse_turn(path):
                     # of the prior turn's stale text (or nothing at all).
                     rendered = render_ask((b.get("input") or {}).get("questions"))
                     if rendered:
-                        ask = rendered
+                        cur["ask"] = rendered
+    for t in turns:
+        t["text"] = t["texts"][-1] if t["texts"] else None
+        del t["texts"]
+    return turns, assistant_seen, parsed_ok
+
+
+def parse_turn(path):
+    """Extract the CURRENT turn: the last real user prompt and everything the
+    assistant produced after it, plus the session-wide task list (rebuilt from
+    the whole file — see _reconstruct_tasks) and the full turn history under
+    "turns" (oldest first) so the pane can page back through earlier answers."""
+    lines = all_lines(path)
+    turns, assistant_seen, parsed_ok = parse_turns(lines)
+    latest = turns[-1] if turns else _new_turn(None)
+    model = latest["model"] or next((t["model"] for t in reversed(turns) if t["model"]), None)
     try:
         mtime = os.path.getmtime(path)
     except OSError:
         mtime = 0
-    tasklist = _reconstruct_tasks(all_lines(path))
+    tasklist = _reconstruct_tasks(lines)
     return {
         "path": path,
         "id": os.path.basename(path).replace(".jsonl", ""),
-        "question": q,
-        "text": texts[-1] if texts else None,
-        "plan": plan,
-        "ask": ask,
+        "question": latest["question"],
+        "text": latest["text"],
+        "plan": latest["plan"],
+        "ask": latest["ask"],
         "tasks": tasklist,
         "model": model,
         "mtime": mtime,
+        "turns": turns,
         # format-drift signal: assistant records exist but NONE of their content
         # blocks matched our known schema -> our parser is likely stale.
         "format_drift": assistant_seen > 0 and not parsed_ok,
     }
+
+
+def turn_at(state, index):
+    """A view of turn `index` (0 = oldest) shaped like parse_turn's result, so
+    build_surfaces / render_screen / yank all work unchanged on an earlier turn.
+    The task list is session-wide and only meaningful on the latest turn."""
+    turns = state.get("turns") or []
+    if not turns:
+        return dict(state, historical=False)
+    index = max(0, min(index, len(turns) - 1))
+    t = turns[index]
+    latest = index == len(turns) - 1
+    return dict(state, question=t["question"], text=t["text"], plan=t["plan"],
+                ask=t["ask"], tasks=state["tasks"] if latest else [],
+                historical=not latest)
 
 
 def oneline(s):
@@ -563,7 +609,9 @@ def build_surfaces(turn):
         # parser is likely stale against a changed transcript format — say so
         # instead of pretending Claude is working.
         live = (time.time() - turn["mtime"]) < LIVE_WINDOW
-        if turn.get("format_drift") and not live:
+        if turn.get("historical"):
+            out.append(("waiting", Text("  (this turn produced no response text)", style="dim italic")))
+        elif turn.get("format_drift") and not live:
             out.append(("waiting", Text(
                 "  Transcript format not recognized.\n\n"
                 "  claude-review found assistant records but couldn't parse any of\n"
@@ -573,6 +621,39 @@ def build_surfaces(turn):
         else:
             out.append(("waiting", Text("  (no response yet — Claude is working)", style="dim italic")))
     return out
+
+
+HELP_KEYS = [
+    ("← →  or  h l", "earlier / later turn in this session"),
+    ("↑ ↓  or  j k", "scroll a line;  space / b  scroll a page;  g / G  top / bottom"),
+    ("Tab", "next surface (response · question · plan · tasks)"),
+    ("f", "freeze: hold this view while Claude keeps working"),
+    ("r", "refresh, unfreeze, and return to the latest turn"),
+    ("y", "copy the current surface to the clipboard"),
+    ("s", "switch to another session in this project"),
+    ("q", "quit"),
+    ("?", "close this"),
+]
+
+
+def help_renderable(turn):
+    """The `?` overlay: every key with a descriptive label, then the facts the
+    footer no longer carries (session id, model, project). Descriptive because
+    there is room here; the footer keeps one-word cues only."""
+    t = Table.grid(padding=(0, 3))
+    t.add_column(style="grey85", no_wrap=True)
+    t.add_column(style=C_QUESTION)
+    for k, d in HELP_KEYS:
+        t.add_row(k, d)
+    facts = Table.grid(padding=(0, 3))
+    facts.add_column(style=C_META, no_wrap=True)
+    facts.add_column(style=C_QUESTION)
+    facts.add_row("session", turn.get("id") or "?")
+    facts.add_row("model", short_model(turn.get("model")))
+    cwd = _transcript_cwd(turn["path"]) if turn.get("path") else None
+    if cwd:
+        facts.add_row("project", cwd)
+    return Group(Text("keys", style="bold grey85"), Text(""), t, Text(""), facts)
 
 
 def inset_rule(W, gutter, left_text=None, left_style=C_META, right_text=None):
@@ -603,7 +684,8 @@ def inset_rule(W, gutter, left_text=None, left_style=C_META, right_text=None):
     return line
 
 
-def render_screen(turn, surfaces, active, scroll, frozen=False, pending=False, flash=None):
+def render_screen(turn, surfaces, active, scroll, frozen=False, pending=False, flash=None,
+                  nav=None, help=False):
     W, H = shutil.get_terminal_size()
     live = (time.time() - turn["mtime"]) < LIVE_WINDOW
     gutter = 4                                   # content left margin (the "column")
@@ -628,6 +710,16 @@ def render_screen(turn, surfaces, active, scroll, frozen=False, pending=False, f
     # --- body: content fills the screen down to the chrome ---------------
     body_h = max(1, H - 3)                         # top rule, bottom rule, key row
     label, renderable = surfaces[active]
+    if help:                                       # the `?` overlay replaces the body
+        renderable = help_renderable(turn)
+        scroll = 0
+    # Paging back through history: lead with the prompt this turn answered (dim,
+    # one line) so an earlier answer is never read out of context. The latest
+    # turn stays prompt-free — its prompt is right there in the driving pane.
+    if not help and turn.get("historical") and turn.get("question"):
+        renderable = Group(Text("› " + oneline(turn["question"]), style=C_QUESTION,
+                                no_wrap=True, overflow="ellipsis"),
+                           Text(""), renderable)
     opts = console.options.update_width(W)
     # vertical air + a left gutter so content reads as its own column
     rendered = console.render_lines(Padding(renderable, (1, gutter)), opts, pad=True)
@@ -656,10 +748,13 @@ def render_screen(turn, surfaces, active, scroll, frozen=False, pending=False, f
     # the state changes (working=7 is the longest of working/idle/frozen).
     left.append(f"{dot} ", style=status_style)
     left.append(f"{state:<7}", style=status_style)
-    left.append(f"  ·  {turn['id'][:8]}")
-    if frozen and pending:                         # held view, newer content exists
+    # One plain word, `new`, whenever newer content exists that this view is not
+    # showing — because you froze it, or because you stepped back to an earlier
+    # turn. No glyph: the word is the signal, and it sits in the one accent color.
+    behind = (frozen and pending) or (nav and nav.get("new") and nav["index"] < nav["count"] - 1)
+    if behind:
         left.append("   ")
-        left.append("new ↓", style=C_FROZEN)
+        left.append("new", style=C_FROZEN)
 
     right = Text(no_wrap=True, style=C_FOOT)
     if len(surfaces) > 1:                          # ⇥ signals Tab cycles these
@@ -667,15 +762,20 @@ def render_screen(turn, surfaces, active, scroll, frozen=False, pending=False, f
         for i, (lbl, _) in enumerate(surfaces):
             right.append(lbl, style=(C_TAB_ON if i == active else C_META))
             right.append(" · " if i < len(surfaces) - 1 else "    ", style=C_META)
-    # action cues — uniformly muted (the colored "■ frozen" above is the state).
-    # A transient flash (e.g. "copied response") briefly replaces the cues after
-    # a yank, so the confirmation appears where the eye already is.
-    if flash:
+    # Cues — the footer carries the two you reach for while reading (freeze, and
+    # turns once there are several) plus `? more`, which opens the full key list.
+    # Everything else lives in the overlay. A transient flash (e.g. "copied
+    # response") briefly replaces the cues after a yank, so the confirmation
+    # appears where the eye already is.
+    if help:
+        right.append("any key closes")
+    elif flash:
         right.append(f"✓ {flash}", style=C_FROZEN)
     else:
-        right.append("y copy · ")
         right.append("f unfreeze" if frozen else "f freeze")
-        right.append(" · ↑↓ scroll" + ("" if frozen else " · s switch") + " · q quit")
+        if nav and nav["count"] > 1:
+            right.append(" · ←→ turns")
+        right.append(" · ? more")
 
     keyrow = Text(no_wrap=True, overflow="ellipsis", style=C_FOOT)
     pad = max(1, W - len(left.plain) - len(right.plain) - gutter)
@@ -774,28 +874,38 @@ def _surface_raw_text(turn, label):
 
 
 def review(path, rawin):
-    turn = parse_turn(path)
+    state = parse_turn(path)         # whole session: latest turn + "turns" history
+    cursor = max(0, len(state["turns"]) - 1)   # which turn is on screen; last = follow live
+    turn = turn_at(state, cursor)
     surfaces = build_surfaces(turn)
     active = 0
     scroll = 0
     frozen = False
     pending = False                  # newer content exists but is held back (frozen)
+    new_turn = False                 # a newer turn landed while reading an earlier one
+    help = False                     # the `?` key overlay is up
     flash = None                     # transient footer note (e.g. "copied"), cleared next key
-    last_sig = turn_sig(turn)
-    last_mtime = turn["mtime"]
+    last_sig = turn_sig(state)
+    last_mtime = state["mtime"]
     _emit(ALT_SCROLL_ON)             # wheel scrolls without capturing selection
     try:
         with Live(console=console, screen=True, auto_refresh=False) as live:
             while True:
+                nav = {"index": cursor, "count": len(state["turns"]), "new": new_turn}
                 screen, max_scroll = render_screen(turn, surfaces, active, scroll,
                                                    frozen=frozen, pending=pending,
-                                                   flash=flash)
+                                                   flash=flash, nav=nav, help=help)
                 live.update(screen, refresh=True)
 
                 k = rawin.get(POLL)
                 if k is not None:
                     flash = None               # any keypress clears the transient note
-                if k == "q":                   # only q quits; esc is harmless here
+                if help and k is not None:     # overlay up: any key closes it, consumed
+                    help = False
+                    k = None
+                if k == "?":
+                    help = True
+                elif k == "q":                 # only q quits; esc is harmless here
                     return "quit"
                 if k == "s":
                     return "switch"
@@ -824,8 +934,22 @@ def review(path, rawin):
                     scroll = 0
                 elif k in ("G", "end"):
                     scroll = max_scroll
+                elif k in ("left", "h", "[") and cursor > 0:      # an earlier turn
+                    cursor -= 1
+                    turn = turn_at(state, cursor)
+                    surfaces = build_surfaces(turn)
+                    active, scroll = 0, 0
+                elif k in ("right", "l", "]") and cursor < len(state["turns"]) - 1:
+                    cursor += 1                                    # a later turn
+                    turn = turn_at(state, cursor)
+                    surfaces = build_surfaces(turn)
+                    active, scroll = 0, 0
+                    if cursor == len(state["turns"]) - 1:
+                        new_turn = False
                 elif k == "r":
                     frozen = False
+                    cursor = max(0, len(state["turns"]) - 1)      # back to the latest
+                    new_turn = False
                     last_mtime = 0      # force reparse below
 
                 # check the file's mtime; while frozen we only note that newer
@@ -840,14 +964,26 @@ def review(path, rawin):
                 pending = False
                 if m != last_mtime:
                     last_mtime = m
-                    turn = parse_turn(path)
-                    surfaces = build_surfaces(turn)
-                    active = min(active, len(surfaces) - 1)
-                    sig = turn_sig(turn)
-                    if sig != last_sig:      # fresh turn -> jump to top to read it
-                        scroll = 0
-                        active = 0
-                        last_sig = sig
+                    state = parse_turn(path)
+                    following = cursor >= len(state["turns"]) - 1 or not state["turns"]
+                    sig = turn_sig(state)
+                    if following:
+                        # on the latest turn: keep following it as it grows
+                        cursor = max(0, len(state["turns"]) - 1)
+                        turn = turn_at(state, cursor)
+                        surfaces = build_surfaces(turn)
+                        active = min(active, len(surfaces) - 1)
+                        if sig != last_sig:      # fresh turn -> jump to top to read it
+                            scroll = 0
+                            active = 0
+                    else:
+                        # reading an earlier turn: leave it alone, just flag the new one
+                        turn = turn_at(state, cursor)
+                        surfaces = build_surfaces(turn)
+                        active = min(active, len(surfaces) - 1)
+                        if sig != last_sig:
+                            new_turn = True
+                    last_sig = sig
     finally:
         _emit(ALT_SCROLL_OFF)               # always restore the terminal's wheel
 

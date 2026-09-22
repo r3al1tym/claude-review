@@ -655,3 +655,114 @@ def test_turn_sig_changes_when_response_changes(tmp_path):
     other = dict(base, text="b")
     assert cr.turn_sig(base) != cr.turn_sig(other)
     assert cr.turn_sig(base) == cr.turn_sig(dict(base))
+
+
+# --------------------------------------------------------------------------- turn history (←/→)
+def test_parse_turn_exposes_full_history(tmp_path):
+    f = tmp_path / "s.jsonl"
+    write_jsonl(f, [
+        user("q1"), assistant([text_block("a1")]),
+        user("q2"), assistant([tool_block("ExitPlanMode", plan="p2")]),
+        user("q3"), assistant([text_block("interim")]), assistant([text_block("a3")]),
+    ])
+    st = cr.parse_turn(str(f))
+    assert [t["question"] for t in st["turns"]] == ["q1", "q2", "q3"]
+    assert [t["text"] for t in st["turns"]] == ["a1", None, "a3"]
+    assert st["turns"][1]["plan"] == "p2"
+    assert st["text"] == "a3" and st["question"] == "q3"   # latest is unchanged
+
+
+def test_turn_at_views_an_earlier_turn_with_prompt_and_no_tasks(tmp_path):
+    f = tmp_path / "s.jsonl"
+    write_jsonl(f, [
+        user("q1"), assistant([text_block("a1")]),
+        assistant([tool_block("TaskCreate", subject="do it")]),
+        user("q2"), assistant([text_block("a2")]),
+    ])
+    st = cr.parse_turn(str(f))
+    old = cr.turn_at(st, 0)
+    assert old["historical"] is True
+    assert old["question"] == "q1" and old["text"] == "a1"
+    assert old["tasks"] == []                    # session-wide tasks only on the latest
+    assert cr._surface_raw_text(old, "response") == "a1"
+    latest = cr.turn_at(st, 1)
+    assert latest["historical"] is False and latest["text"] == "a2"
+    assert latest["tasks"]                       # the task list rides the latest turn
+    assert cr.turn_at(st, 99)["text"] == "a2"    # index is clamped
+    assert cr.turn_at(st, -5)["text"] == "a1"
+
+
+def test_historical_turn_without_text_is_not_reported_as_working(tmp_path):
+    f = tmp_path / "s.jsonl"
+    write_jsonl(f, [
+        user("q1"), assistant([tool_block("Bash", command="ls")]),
+        user("q2"), assistant([text_block("a2")]),
+    ])
+    st = cr.parse_turn(str(f))
+    surfaces = cr.build_surfaces(cr.turn_at(st, 0))
+    assert surfaces[0][0] == "waiting"
+    assert "no response text" in surfaces[0][1].plain
+    assert "working" not in surfaces[0][1].plain
+
+
+def test_assistant_text_before_any_prompt_forms_its_own_turn(tmp_path):
+    f = tmp_path / "s.jsonl"
+    write_jsonl(f, [assistant([text_block("orphan")]), user("q1"), assistant([text_block("a1")])])
+    st = cr.parse_turn(str(f))
+    assert [(t["question"], t["text"]) for t in st["turns"]] == [(None, "orphan"), ("q1", "a1")]
+
+
+def test_is_meta_user_records_do_not_split_a_turn(tmp_path):
+    f = tmp_path / "s.jsonl"
+    write_jsonl(f, [
+        user("look at the image"),
+        assistant([text_block("on it")]),
+        {"type": "user", "isMeta": True, "message": {"content": "[Image: original 1200x800]"}},
+        {"type": "user", "isMeta": True,
+         "message": {"content": [{"type": "text", "text": "Base directory for this skill: /x"}]}},
+        assistant([text_block("the analysis")]),
+    ])
+    st = cr.parse_turn(str(f))
+    assert len(st["turns"]) == 1
+    assert st["question"] == "look at the image" and st["text"] == "the analysis"
+
+
+# --------------------------------------------------------------------------- footer + ? overlay
+def _screen_text(turn, **kw):
+    import shutil, os as _os
+    from rich.console import Console
+    real = shutil.get_terminal_size
+    shutil.get_terminal_size = lambda *a, **k: _os.terminal_size((100, 30))
+    try:
+        surfaces = cr.build_surfaces(turn)
+        screen, _ = cr.render_screen(turn, surfaces, 0, 0, **kw)
+    finally:
+        shutil.get_terminal_size = real
+    c = Console(width=100, record=True, force_terminal=False)
+    c.print(screen)
+    return c.export_text()
+
+
+def test_footer_is_state_plus_three_cues(tmp_path):
+    f = tmp_path / "abcdef12-3456.jsonl"
+    write_jsonl(f, [user("q1"), assistant([text_block("a1")]), user("q2"), assistant([text_block("a2")])])
+    st = cr.parse_turn(str(f))
+    foot = _screen_text(cr.turn_at(st, 1), nav={"index": 1, "count": 2, "new": False}).splitlines()[-1]
+    assert "f freeze" in foot and "←→ turns" in foot and "? more" in foot
+    for gone in ("y copy", "s switch", "q quit", "↑↓ scroll", st["id"][:8], "1/2"):
+        assert gone not in foot
+    single = _screen_text(cr.turn_at(st, 1), nav={"index": 0, "count": 1, "new": False}).splitlines()[-1]
+    assert "←→ turns" not in single
+
+
+def test_help_overlay_lists_every_key_and_the_session(tmp_path):
+    f = tmp_path / "abcdef12-3456.jsonl"
+    write_jsonl(f, [{"type": "user", "cwd": "/home/me/proj", "message": {"content": "q"}},
+                    assistant([text_block("a")], model="claude-opus-4-8")])
+    st = cr.parse_turn(str(f))
+    out = _screen_text(cr.turn_at(st, 0), help=True)
+    for k, d in cr.HELP_KEYS:
+        assert d.split(";")[0] in out
+    assert st["id"] in out and "opus-4-8" in out and "/home/me/proj" in out
+    assert "any key closes" in out.splitlines()[-1]
+    assert "the analysis" not in out                    # body is replaced, not appended

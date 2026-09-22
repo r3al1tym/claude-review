@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — 2026-09-21
+
+### Added
+- **Turn history.** `←`/`→` (or `h`/`l`, `[`/`]`) step back and forward through
+  the session's turns, so the detailed answer from a few prompts ago is one
+  keypress away instead of gone. The pane keeps following the live turn until you
+  step back; while you're reading an earlier turn it holds still and shows
+  `new` when a newer turn lands. `r` returns to the latest. An earlier turn is
+  led by the prompt it answered (one dim line) so it is never read out of context.
+  Tasks stay with the latest turn.
+
+### Changed
+- **Footer is state, not legend.** The key row now carries the session state,
+  the surface tabs, `f freeze`, `←→ turns` (once there are several) and `? more`.
+  The full key list, with descriptive labels, plus the session id, model and
+  project moved into a `?` overlay that any key closes. The response owns the
+  screen; frozen and history stay the only colored things on it.
+
+### Fixed
+- **Phantom turns.** Claude Code injects `isMeta` user records mid-turn (an image
+  the model read, a skill body, turn companions). The parser treated them as new
+  prompts, so one answer split into several turns and the pane briefly showed
+  "Claude is working" after an image read. They are now skipped.
+
+### Changed
+- The parser reads the whole transcript (it already did for tasks) instead of a
+  500 KB tail, so history is complete; a 5 MB session parses in ~40 ms.
+
 ## [0.4.1] — 2026-07-15
 
 ### Fixed

@@ -25,7 +25,7 @@ Then just ask Claude *"open a review pane for this session"* — it resolves the
 ### Or install the CLI directly
 
 ```bash
-pipx install git+https://github.com/r3al1tym/claude-review@v0.4.1
+pipx install git+https://github.com/r3al1tym/claude-review@v0.5.0
 claude-review
 ```
 
@@ -37,6 +37,7 @@ Run Claude Code in one pane and `claude-review` in the other; it follows the lat
 - **Latest response only.** The current answer, rendered as clean markdown — re-anchored to the top each turn, never a scrolling log.
 - **Surfaces.** `Tab` cycles `response`, `plan` (from plan mode), and `tasks` (the live task list).
 - **Freeze.** Press `f` to hold the view while Claude keeps working; a marker shows when newer content is waiting.
+- **History.** `←`/`→` step back and forward through the session's turns, so an earlier answer (the detailed one from three prompts ago) is one keypress away; the pane keeps following the live turn until you step back, and flags when a newer one lands.
 
 > Claude Code's built-in [`/focus`](https://code.claude.com/docs/en/interactive-mode) declutters the *live* session in place; `claude-review` is the complement — a dedicated, scrollable reading pane alongside it.
 
@@ -50,7 +51,7 @@ claude-review -l              # list recent sessions and exit
 claude-review --help          # all flags and keys
 ```
 
-**Keys:** `Tab` surfaces · `y` copy the current surface · `f` freeze · `↑`/`↓` or `j`/`k` scroll (mouse wheel works too) · `space`/`b` page · `g`/`G` top/bottom · `s` switch session · `r` refresh · `q` quit.
+**Keys:** `?` shows them all in the pane. `Tab` surfaces · `y` copy the current surface · `f` freeze · `↑`/`↓` or `j`/`k` scroll (mouse wheel works too) · `space`/`b` page · `g`/`G` top/bottom · `←`/`→` or `h`/`l` earlier/later turn · `s` switch session · `r` refresh (back to the latest turn) · `q` quit.
 
 **Reviewing another project:** run `claude-review` from the project directory, or pass `-p` an absolute path. If a lookup ever misses, run `ls ~/.claude/projects/` and pass the literal directory name with `-p`. If your `~/.claude` lives elsewhere, set `CLAUDE_CONFIG_DIR`. ([slug details](docs/troubleshooting.md))
 

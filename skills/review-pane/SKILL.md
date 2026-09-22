@@ -49,7 +49,7 @@ Read the final line:
   `$HOME/.local/bin/claude-review -s <id>`, and tell the user to add
   `~/.local/bin` to PATH (or open a fresh login pane) for the short form to work.
 - `SETUP_FAIL <reason>` — tell the user the reason; offer the manual install
-  (`pipx install git+https://github.com/r3al1tym/claude-review@v0.4.1`).
+  (`pipx install git+https://github.com/r3al1tym/claude-review@v0.5.0`).
 
 ### 2. Resolve which session the user means
 
@@ -84,8 +84,9 @@ auto-detected" / "the session about X").
 
 ## Keys to mention if helpful
 
-`Tab` cycles surfaces (response / plan / tasks) · `↑↓`/`j`/`k` scroll · `f` freezes
-the view while Claude keeps working · `s` switches session · `q` quits.
+`Tab` cycles surfaces (response / plan / tasks) · `↑↓`/`j`/`k` scroll · `←→` steps to an
+earlier / later turn (the pane follows the live turn until you step back; `r` returns to
+it) · `f` freezes the view while Claude keeps working · `s` switches session · `q` quits.
 
 ## Notes
 
