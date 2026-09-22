@@ -947,6 +947,17 @@ def _surface_raw_text(turn, label):
 SCROLL_KEYS = ("j", "down", "k", "up", " ", "b", "g", "home", "G", "end")
 
 
+def _stamp(path):
+    """Change detector for the transcript: (mtime, size). Size joins mtime so
+    two writes inside one filesystem timestamp tick (coarse mtime on some
+    filesystems) still register as a change. None if the file is unreadable."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_mtime, st.st_size)
+
+
 def review(path, rawin):
     """The interactive loop. `state` is the whole parsed session and is re-read
     on every mtime change, whatever mode you are in, so it is never stale.
@@ -964,7 +975,7 @@ def review(path, rawin):
     help = False                     # the `?` key overlay is up
     flash = None                     # transient footer note (e.g. "copied"), cleared next key
     seen = reply_sig(state)
-    last_mtime = state["mtime"]
+    last_stamp = _stamp(path)
 
     def show(index, reset=True):
         """Point the view at turn `index` of the current state."""
@@ -1049,12 +1060,9 @@ def review(path, rawin):
                 # Re-read the session whenever the file changes, in every mode, so
                 # `state` is never stale. Only a FOLLOWING view is redrawn from it;
                 # a held view (frozen, or on an earlier turn) keeps what it shows.
-                try:
-                    m = os.path.getmtime(path)
-                except OSError:
-                    m = last_mtime
-                if m != last_mtime:
-                    last_mtime = m
+                stamp = _stamp(path)
+                if stamp is not None and stamp != last_stamp:
+                    last_stamp = stamp
                     state = parse_turn(path)
                     if not frozen and cursor >= latest_index(state):
                         catch_up()

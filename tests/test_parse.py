@@ -797,11 +797,13 @@ def _drive(monkeypatch, path, keys):
 
 
 def _append(path, events):
-    import time, os
+    import os
+    before = os.stat(path).st_mtime
     with open(path, "a", encoding="utf-8") as fh:
         fh.write("\n".join(json.dumps(e) for e in events) + "\n")
-    # force a visible mtime change even on coarse filesystems
-    st = os.stat(path); os.utime(path, (st.st_atime, st.st_mtime + 2))
+    # force a STRICTLY increasing mtime: two appends inside one filesystem tick
+    # (Windows CI) would otherwise read as unchanged and the loop would not reparse
+    st = os.stat(path); os.utime(path, (st.st_atime, max(st.st_mtime, before) + 2))
 
 
 def test_review_follows_live_and_r_returns_to_latest_after_freeze(tmp_path, monkeypatch):
