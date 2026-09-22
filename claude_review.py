@@ -733,9 +733,11 @@ def help_renderable(turn, width, status, nav=None):
     wide = width >= HELP_TWO_COL_MIN
     rule = Text("─" * max(1, width), style=C_RULE)
 
-    # The product name leads, in the wordmark badge; the sentences run on from it.
+    # The product name leads in the bright emphasis weight (no wash: the badge
+    # already sits in the top rule, and two of them would read as two chrome
+    # elements); the sentences run on from it.
     intro = Text()
-    intro.append(" claude review ", style=C_BADGE)
+    intro.append("claude review", style="bold grey85")
     intro.append(HELP_INTRO, style=C_QUESTION)
 
     sections = [_help_section(title, rows, chips=wide) for title, rows in HELP_GROUPS]

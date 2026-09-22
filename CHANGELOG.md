@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The format is based on
 ## [0.5.2] — 2026-09-22
 
 ### Changed
-- **`?` guide, reordered.** Opens with the product name in its badge and three
+- **`?` guide, reordered.** Opens with the product name in the emphasis weight and three
   sentences on what the pane is for, then the key guide, then a muted
   DIAGNOSTICS block: one labelled line each for state, session, model, project,
   transcript path, turn position and last write. The diagnostics sit a full
