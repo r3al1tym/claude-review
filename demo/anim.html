@@ -269,10 +269,10 @@ function tuiView(t,cr){
   var dot   = frozen?'■':(idle?'○':'●');
   var state = frozen?'frozen':(idle?'idle':'working');
   while(state.length<7) state+=' ';        // pad to 7 (working=longest) so the id never shifts
-  var hint  = frozen ? '   <span class="newhint">new ↓</span>' : '';
-  var left  = '<span><span class="dot">'+dot+'</span> <span class="state">'+state+'</span>  ·  <span class="sid">7dab670a</span>'+hint+'</span>';
+  var hint  = frozen ? '   <span class="newhint">new reply</span>' : '';
+  var left  = '<span><span class="dot">'+dot+'</span> <span class="state">'+state+'</span>'+hint+'</span>';
   var fkey  = frozen?'f unfreeze':'f freeze';
-  var keystr= fkey+' · ↑↓ scroll'+(frozen?'':' · s switch')+' · q quit';
+  var keystr= fkey+' · ←→ turns · ? more';
 
   // freeze keycap flash — a quick cyan `f` press when freeze toggles on
   var kc='';

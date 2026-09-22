@@ -35,7 +35,7 @@ Run Claude Code in one pane and `claude-review` in the other; it follows the lat
 
 - **One session, pinned.** Pick the session you care about; the view never drifts to another.
 - **Latest response only.** The current answer, rendered as clean markdown — re-anchored to the top each turn, never a scrolling log.
-- **Surfaces.** `Tab` cycles `response`, `plan` (from plan mode), and `tasks` (the live task list).
+- **Surfaces.** `Tab` cycles `response`, `question` (when Claude asks you one), `plan` (from plan mode), and `tasks` (the live task list).
 - **Freeze.** Press `f` to hold the view while Claude keeps working; a marker shows when newer content is waiting.
 - **History.** `←`/`→` step back and forward through the session's turns, so an earlier answer (the detailed one from three prompts ago) is one keypress away; the pane keeps following the live turn until you step back, and flags when a newer one lands.
 
@@ -51,7 +51,7 @@ claude-review -l              # list recent sessions and exit
 claude-review --help          # all flags and keys
 ```
 
-**Keys:** `?` shows them all in the pane. `Tab` surfaces · `y` copy the current surface · `f` freeze · `↑`/`↓` or `j`/`k` scroll (mouse wheel works too) · `space`/`b` page · `g`/`G` top/bottom · `←`/`→` or `h`/`l` earlier/later turn · `s` switch session · `r` refresh (back to the latest turn) · `q` quit.
+**Keys:** `?` shows them all in the pane. `Tab` surfaces · `y` copy the current surface · `f` freeze · `↑`/`↓` or `j`/`k` scroll (mouse wheel works too) · `space`/`b` page · `g`/`G` top/bottom · `←`/`→` (or `h`/`l`, `[`/`]`) earlier/later turn · `s` switch session · `r` refresh (back to the latest turn) · `q` quit.
 
 **Reviewing another project:** run `claude-review` from the project directory, or pass `-p` an absolute path. If a lookup ever misses, run `ls ~/.claude/projects/` and pass the literal directory name with `-p`. If your `~/.claude` lives elsewhere, set `CLAUDE_CONFIG_DIR`. ([slug details](docs/troubleshooting.md))
 
@@ -59,7 +59,7 @@ To try the UI with no live session, a sample transcript ships in the repo: `clau
 
 ## How it works
 
-`claude-review` reads the selected session's local JSONL transcript and reconstructs the current turn — the latest prompt and the response, plan, and tasks the assistant produced after it — re-reading only when the file changes. No network, ever.
+`claude-review` reads the selected session's local JSONL transcript and reconstructs the current turn — the latest prompt and the response, question, plan, and tasks the assistant produced after it — re-reading only when the file changes. No network, ever.
 
 ## Limitations
 

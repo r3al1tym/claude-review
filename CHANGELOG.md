@@ -10,27 +10,34 @@ All notable changes to this project are documented here. The format is based on
 - **Turn history.** `←`/`→` (or `h`/`l`, `[`/`]`) step back and forward through
   the session's turns, so the detailed answer from a few prompts ago is one
   keypress away instead of gone. The pane keeps following the live turn until you
-  step back; while you're reading an earlier turn it holds still and shows
-  `new` when a newer turn lands. `r` returns to the latest. An earlier turn is
-  led by the prompt it answered (one dim line) so it is never read out of context.
-  Tasks stay with the latest turn.
+  step back; while you are reading an earlier turn it holds still, and `r` (or
+  `→` to the end) returns to the live turn. An earlier turn is led by the prompt
+  it answered, one dim line, so it is never read out of context. Tasks stay with
+  the latest turn.
+- **`?` overlay.** Every key with a descriptive label, plus the session id,
+  model and project. It scrolls with the usual keys on a short pane; any other
+  key closes it.
 
 ### Changed
-- **Footer is state, not legend.** The key row now carries the session state,
-  the surface tabs, `f freeze`, `←→ turns` (once there are several) and `? more`.
-  The full key list, with descriptive labels, plus the session id, model and
-  project moved into a `?` overlay that any key closes. The response owns the
-  screen; frozen and history stay the only colored things on it.
+- **Footer is state, not legend.** The key row carries the session state, the
+  surface tabs (which give way before the cues on a narrow pane), `f freeze`,
+  `←→ turns` once there are several, and `? more`. The session id and the rest
+  of the key list moved behind `?`. The response owns the screen; frozen and
+  "new reply" stay the only colored things on it.
+- **"new reply" means a reply.** The held-view flag (frozen, or back in history)
+  now fires only when response text, a plan or a question lands on the latest
+  turn. A new prompt or a running tool call no longer lights it up.
+- The parser reads the whole transcript (it already did for tasks) instead of a
+  500 KB tail, decoding each record once for both passes; a 5 MB session parses
+  in about 40 ms.
 
 ### Fixed
 - **Phantom turns.** Claude Code injects `isMeta` user records mid-turn (an image
   the model read, a skill body, turn companions). The parser treated them as new
   prompts, so one answer split into several turns and the pane briefly showed
   "Claude is working" after an image read. They are now skipped.
-
-### Changed
-- The parser reads the whole transcript (it already did for tasks) instead of a
-  500 KB tail, so history is complete; a 5 MB session parses in ~40 ms.
+- Transcript-derived strings in the `?` overlay (session name, model, project
+  cwd) are stripped of control bytes like every other rendered string.
 
 ## [0.4.1] — 2026-07-15
 

@@ -84,7 +84,7 @@ auto-detected" / "the session about X").
 
 ## Keys to mention if helpful
 
-`Tab` cycles surfaces (response / plan / tasks) · `↑↓`/`j`/`k` scroll · `←→` steps to an
+`Tab` cycles surfaces (response / question / plan / tasks) · `↑↓`/`j`/`k` scroll · `←→` steps to an
 earlier / later turn (the pane follows the live turn until you step back; `r` returns to
 it) · `f` freezes the view while Claude keeps working · `s` switches session · `q` quits.
 

@@ -62,6 +62,13 @@ def test_skill_manual_install_pin_matches_version():
         assert p == _pyproject_version(), f"SKILL.md install pin @v{p} is stale"
 
 
+def test_cleanroom_default_ref_matches_version():
+    sh = (_ROOT / "tests/cleanroom.sh").read_text(encoding="utf-8")
+    m = re.search(r'CRV_REF="\$\{CRV_REF:-v([^}]+)\}"', sh)
+    assert m, "expected a CRV_REF default in tests/cleanroom.sh"
+    assert m.group(1) == _pyproject_version(), f"cleanroom.sh default ref v{m.group(1)} is stale — bump it with the release"
+
+
 def test_readme_install_pin_matches_version():
     readme = (_ROOT / "README.md").read_text(encoding="utf-8")
     pins = re.findall(r'claude-review@v([0-9][^`)\s]*)', readme)
@@ -382,28 +389,6 @@ def test_is_real_prompt(content, expected):
     assert cr.is_real_prompt(content) is expected
 
 
-# --------------------------------------------------------------------------- tail_lines
-def test_tail_lines_drops_leading_partial_when_truncated(tmp_path):
-    f = tmp_path / "big.jsonl"
-    # three lines, each well over a tiny nbytes window
-    lines = [json.dumps({"type": "user", "message": {"content": "x" * 200}}) for _ in range(3)]
-    f.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    got = cr.tail_lines(str(f), nbytes=250)   # forces truncation mid-file
-    # the first (partial) line is dropped; remaining lines are intact JSON
-    assert all(json.loads(l) for l in got)
-    assert len(got) < 3
-
-
-def test_tail_lines_keeps_all_when_under_limit(tmp_path):
-    f = tmp_path / "small.jsonl"
-    write_jsonl(f, [user("a"), user("b")])
-    assert len(cr.tail_lines(str(f), nbytes=1_000_000)) == 2
-
-
-def test_tail_lines_missing_file_returns_empty():
-    assert cr.tail_lines("/nonexistent/path/x.jsonl") == []
-
-
 # --------------------------------------------------------------------------- formatters
 @pytest.mark.parametrize("secs,out", [
     (0, "0s"), (59, "59s"), (60, "1m"), (3599, "59m"),
@@ -633,13 +618,15 @@ def test_subagent_spawn_taskcreate_is_not_a_todo(tmp_path):
     assert cr.parse_turn(str(f))["tasks"] == [{"status": "completed", "content": "real todo"}]
 
 
+
+
 # --------------------------------------------------------------------------- unicode line separators
-def test_tail_lines_does_not_split_on_unicode_separators(tmp_path):
+def test_records_do_not_split_on_unicode_separators(tmp_path):
     # Node's JSON.stringify does NOT escape U+2028 (LS), U+2029 (PS), or U+0085
     # (NEL), so a record whose text contains one must survive as ONE line. Python's
     # str.splitlines() breaks on all three (and VT/FF/FS/GS/RS), which would shatter
     # the JSON record into invalid fragments and lose the response entirely.
-    # split("\n") (what tail_lines now uses) only breaks on real newlines.
+    # split("\n") (what _split_records uses) only breaks on real newlines.
     f = tmp_path / "s.jsonl"
     body = "para one\u2028para two\u2029next\u0085tail\x0bvtab"
     f.write_text(
@@ -764,5 +751,133 @@ def test_help_overlay_lists_every_key_and_the_session(tmp_path):
     for k, d in cr.HELP_KEYS:
         assert d.split(";")[0] in out
     assert st["id"] in out and "opus-4-8" in out and "/home/me/proj" in out
-    assert "any key closes" in out.splitlines()[-1]
+    assert "? close" in out.splitlines()[-1]
     assert "the analysis" not in out                    # body is replaced, not appended
+
+
+# --------------------------------------------------------------------------- review() loop (fake input)
+class _Keys:
+    """Scripted RawInput: each get() pops the next key; None = a quiet poll tick.
+    A callable entry runs a side effect (e.g. append to the transcript) and
+    counts as a quiet tick."""
+    def __init__(self, keys):
+        self._keys = list(keys)
+    def get(self, timeout):
+        if not self._keys:
+            return "q"
+        k = self._keys.pop(0)
+        if callable(k):
+            k()
+            return None
+        return k
+
+
+class _NoLive:
+    def __init__(self, *a, **k): pass
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def update(self, *a, **k): pass
+
+
+def _drive(monkeypatch, path, keys):
+    """Run review() headless with scripted keys; return every (turn, nav, frozen,
+    help) render_screen saw, in order."""
+    seen = []
+    real = cr.render_screen
+    def spy(turn, surfaces, active, scroll, **kw):
+        seen.append({"turn": turn, "nav": kw.get("nav"), "frozen": kw.get("frozen"), "help": kw.get("help")})
+        return real(turn, surfaces, active, scroll, **kw)
+    monkeypatch.setattr(cr, "render_screen", spy)
+    monkeypatch.setattr(cr, "Live", _NoLive)
+    monkeypatch.setattr(cr, "_emit", lambda seq: None)
+    monkeypatch.setattr(cr.shutil, "get_terminal_size", lambda *a, **k: __import__("os").terminal_size((90, 24)))
+    monkeypatch.setattr(cr, "POLL", 0)
+    assert cr.review(str(path), _Keys(keys)) == "quit"
+    return seen
+
+
+def _append(path, events):
+    import time, os
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write("\n".join(json.dumps(e) for e in events) + "\n")
+    # force a visible mtime change even on coarse filesystems
+    st = os.stat(path); os.utime(path, (st.st_atime, st.st_mtime + 2))
+
+
+def test_review_follows_live_and_r_returns_to_latest_after_freeze(tmp_path, monkeypatch):
+    f = tmp_path / "abcdef12-0000.jsonl"
+    write_jsonl(f, [user("q1"), assistant([text_block("a1")]), user("q2"), assistant([text_block("a2")])])
+    frames = _drive(monkeypatch, f, [
+        "f",                                                   # freeze on a2
+        lambda: _append(f, [user("q3")]),                      # a prompt lands: NOT a new reply
+        None,
+        lambda: _append(f, [assistant([text_block("a3")])]),   # the reply lands
+        None,
+        "r",                                                   # unfreeze + back to latest
+        None,
+    ])
+    texts = [(fr["turn"]["text"], fr["frozen"], fr["nav"]["behind"]) for fr in frames]
+    # frozen view holds a2; the prompt alone does not flag; the reply does; r lands on a3
+    assert texts[1] == ("a2", True, False)          # after f
+    assert texts[3] == ("a2", True, False)          # q3 landed, still no reply -> no flag
+    assert texts[5] == ("a2", True, True)           # a3 landed -> "new reply"
+    assert texts[-1] == ("a3", False, False)        # r: on the latest, following again
+
+
+def test_review_history_holds_and_flags_only_a_real_reply(tmp_path, monkeypatch):
+    f = tmp_path / "abcdef12-0000.jsonl"
+    write_jsonl(f, [user("q1"), assistant([text_block("a1")]), user("q2"), assistant([text_block("a2")])])
+    frames = _drive(monkeypatch, f, [
+        "left",                                                # back to a1
+        lambda: _append(f, [user("q3"), assistant([tool_block("Bash", command="ls")])]),
+        None,                                                  # prompt + tool call: no reply yet
+        lambda: _append(f, [assistant([text_block("a3")])]),
+        None,
+        "right", "right",                                      # step forward to the latest
+    ])
+    view = [(fr["turn"]["text"], fr["nav"]["behind"], fr["nav"]["count"]) for fr in frames]
+    assert view[1] == ("a1", False, 2)
+    assert view[3] == ("a1", False, 3)              # q3 + tool call landed: not flagged
+    assert view[5] == ("a1", True, 3)               # a3 landed: flagged
+    assert view[-1] == ("a3", False, 3)             # caught up, flag cleared
+
+
+def test_review_help_overlay_scrolls_and_closes(tmp_path, monkeypatch):
+    f = tmp_path / "abcdef12-0000.jsonl"
+    write_jsonl(f, [user("q1"), assistant([text_block("a1")])])
+    frames = _drive(monkeypatch, f, ["?", "j", "x"])
+    assert [fr["help"] for fr in frames] == [False, True, True, False]
+
+
+# --------------------------------------------------------------------------- incremental records
+def test_records_are_read_incrementally_on_append(tmp_path):
+    f = tmp_path / "abcdef12-0000.jsonl"
+    write_jsonl(f, [user("q1"), assistant([text_block("a1")])])
+    assert cr.parse_turn(str(f))["text"] == "a1"
+    with open(f, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(user("q2")) + "\n" + json.dumps(assistant([text_block("a2")])) + "\n")
+    st = cr.parse_turn(str(f))
+    assert [t["text"] for t in st["turns"]] == ["a1", "a2"]
+    assert cr._RECORDS[str(f)]["size"] == f.stat().st_size
+
+
+def test_records_cache_resets_when_file_shrinks_or_is_rewritten(tmp_path):
+    f = tmp_path / "abcdef12-0000.jsonl"
+    write_jsonl(f, [user("q1"), assistant([text_block("a1")]), user("q2"), assistant([text_block("a2")])])
+    assert len(cr.parse_turn(str(f))["turns"]) == 2
+    write_jsonl(f, [user("only"), assistant([text_block("one")])])          # shorter: rewrite
+    assert [t["text"] for t in cr.parse_turn(str(f))["turns"]] == ["one"]
+    write_jsonl(f, [user("zz"), assistant([text_block("different head, same length-ish")])])
+    assert cr.parse_turn(str(f))["question"] == "zz"                         # head changed: rewrite
+
+
+def test_partial_trailing_line_is_not_consumed_until_complete(tmp_path):
+    f = tmp_path / "abcdef12-0000.jsonl"
+    write_jsonl(f, [user("q1")])
+    cr.parse_turn(str(f))
+    with open(f, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(assistant([text_block("partial")]))[:20])   # mid-write
+    assert cr.parse_turn(str(f))["text"] is None
+    with open(f, "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(assistant([text_block("partial")]))[20:] + "\n")
+    assert cr.parse_turn(str(f))["text"] == "partial"
