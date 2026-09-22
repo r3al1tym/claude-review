@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- **`?` guide, reordered.** Opens with three sentences on what the pane is for,
+  then the key guide, then a DIAGNOSTICS block: one labelled line each for state,
+  session, model, project, transcript path, turn position and last write.
+
 ## [0.5.1] — 2026-09-22
 
 ### Changed

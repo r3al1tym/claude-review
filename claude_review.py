@@ -717,37 +717,21 @@ def _help_section(title, rows, chips=True):
     return Group(*lines)
 
 
-def help_renderable(turn, width, status):
-    """The `?` guide: a session card (state, id, model, project), then the keys
-    grouped by intent, two columns when the pane is wide enough. `status` is
-    (dot, word, style) from the footer so the card repeats the live state."""
+HELP_INTRO = ("claude review pins to one Claude Code session and shows its latest reply, "
+              "rendered for reading, in a pane beside the one you drive. It follows the live "
+              "turn until you freeze it or step back into an earlier turn. It only reads the "
+              "transcript; nothing here writes to the session.")
+
+
+def help_renderable(turn, width, status, nav=None):
+    """The `?` guide, top to bottom: what the pane is for (three sentences), the
+    keys grouped by intent (two columns when the pane is wide enough), then a
+    DIAGNOSTICS block with one labelled line per fact about this session."""
     dot, word, style = status
     wide = width >= HELP_TWO_COL_MIN
-    # Every value here comes from the transcript or its filename, so each goes
-    # through oneline(): rich does not strip ESC, and the overlay is the one
-    # place a transcript's cwd / model / name reach the screen.
-    sid = oneline(turn.get("id") or "?")
-    model = short_model(turn.get("model"))
-    cwd = _transcript_cwd(turn["path"]) if turn.get("path") else None
-    if cwd:
-        home = os.path.expanduser("~")
-        cwd = oneline("~" + cwd[len(home):] if cwd.startswith(home) else cwd)
-    line1 = Text(no_wrap=True, overflow="ellipsis")
-    line1.append(f"{dot} {word}", style=style)
-    line1.append("    ", style=C_META)
-    line1.append(sid, style=C_QUESTION)
-    line2 = Text(no_wrap=True, overflow="ellipsis")
-    line2.append(model, style=C_QUESTION)
-    if cwd:
-        line2.append("  ·  ", style=C_META)
-        line2.append(cwd, style=C_QUESTION)
-    if wide:                       # one line: state · id · model · project
-        card = line1
-        card.append("  ·  ", style=C_META)
-        card.append_text(line2)
-    else:                          # narrow: the id on its own line, then model · project
-        card = Group(line1, line2)
     rule = Text("─" * max(1, width), style=C_RULE)
+
+    intro = Text(HELP_INTRO, style=C_QUESTION)
 
     sections = [_help_section(title, rows, chips=wide) for title, rows in HELP_GROUPS]
     if wide:
@@ -758,15 +742,42 @@ def help_renderable(turn, width, status):
         cols.add_column()
         cols.add_column()
         cols.add_row(left, right)
-        body = cols
+        keys = cols
     else:
         parts = []
         for i, sec in enumerate(sections):
             if i:
                 parts.append(Text(""))
             parts.append(sec)
-        body = Group(*parts)
-    return Group(card, Text(""), rule, Text(""), body)
+        keys = Group(*parts)
+
+    # Every value here comes from the transcript or its filename, so each goes
+    # through oneline(): rich does not strip ESC, and this block is the one place
+    # a transcript's cwd / model / name reach the screen.
+    cwd = _transcript_cwd(turn["path"]) if turn.get("path") else None
+    home = os.path.expanduser("~")
+    tilde = lambda p: ("~" + p[len(home):]) if p and p.startswith(home) else p
+    turns = turn.get("turns") or []
+    age = fmt_age(max(0, time.time() - turn["mtime"])) if turn.get("mtime") else "?"
+    facts = [
+        ("state", f"{dot} {word}", style),
+        ("session", oneline(turn.get("id") or "?"), C_QUESTION),
+        ("model", short_model(turn.get("model")), C_QUESTION),
+        ("project", oneline(tilde(cwd)) if cwd else "?", C_QUESTION),
+        ("transcript", oneline(tilde(turn.get("path") or "?")), C_QUESTION),
+        ("turns", (f"{nav['index'] + 1} of {nav['count']} on screen" if nav and nav.get("count")
+                   else str(len(turns))), C_QUESTION),
+        ("last write", f"{age} ago", C_QUESTION),
+    ]
+    diag = [Text("DIAGNOSTICS", style=C_HEAD)]
+    labw = max(len(k) for k, _, _ in facts) + 2
+    for k, v, st in facts:
+        line = Text(no_wrap=True, overflow="ellipsis")
+        line.append(k.ljust(labw), style=C_META)
+        line.append(v, style=st)
+        diag.append(line)
+
+    return Group(intro, Text(""), rule, Text(""), keys, Text(""), rule, Text(""), Group(*diag))
 
 
 def inset_rule(W, gutter, left_text=None, left_style=C_META, right_text=None):
@@ -822,7 +833,7 @@ def render_screen(turn, surfaces, active, scroll, frozen=False, flash=None,
     body_h = max(1, H - 3)                         # top rule, bottom rule, key row
     label, renderable = surfaces[active]
     if help:                                       # the `?` guide replaces the body
-        renderable = help_renderable(turn, W - 2 * gutter, (dot, state, status_style))
+        renderable = help_renderable(turn, W - 2 * gutter, (dot, state, status_style), nav)
     # Paging back through history: lead with the prompt this turn answered (dim,
     # one line) so an earlier answer is never read out of context. The latest
     # turn stays prompt-free — its prompt is right there in the driving pane.

@@ -719,7 +719,7 @@ def _screen_text(turn, **kw):
     import shutil, os as _os
     from rich.console import Console
     real = shutil.get_terminal_size
-    shutil.get_terminal_size = lambda *a, **k: _os.terminal_size((100, 30))
+    shutil.get_terminal_size = lambda *a, **k: _os.terminal_size((100, 70))
     try:
         surfaces = cr.build_surfaces(turn)
         screen, _ = cr.render_screen(turn, surfaces, 0, 0, **kw)
@@ -896,7 +896,7 @@ def test_help_guide_is_two_columns_wide_and_one_column_narrow(tmp_path):
     outs = {}
     try:
         for W in (100, 60):
-            shutil.get_terminal_size = lambda *a, **k: _os.terminal_size((W, 30))
+            shutil.get_terminal_size = lambda *a, **k: _os.terminal_size((W, 70))
             turn = cr.turn_at(st, 0)
             screen, _ = cr.render_screen(turn, cr.build_surfaces(turn), 0, 0, help=True)
             c = Console(width=W, record=True, force_terminal=False); c.print(screen)
@@ -911,5 +911,7 @@ def test_help_guide_is_two_columns_wide_and_one_column_narrow(tmp_path):
         for keys, desc in cr.HELP_KEYS:
             assert desc in outs[W]
         assert "abcdef12-3456" in outs[W] and "opus-4-8" in outs[W] and "/home/me/proj" in outs[W]
-    # the card repeats the state word and the header row is a hairline
-    assert "idle" in outs[100] or "working" in outs[100]
+    # intro first, keys in the middle, diagnostics last — in that order
+    o = outs[100]
+    assert o.index("pins to one Claude Code session") < o.index("MOVE") < o.index("DIAGNOSTICS")
+    assert "transcript" in o and "last write" in o and ("idle" in o or "working" in o)
