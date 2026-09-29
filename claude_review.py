@@ -8,7 +8,8 @@ for a split terminal: drive Claude Code in one pane, watch its latest answer,
 plan, and task list in the other — without the scrollback noise.
 
   claude-review                 pick a session interactively, then review it
-  claude-review -s <id-prefix>  attach directly to a session id (prefix ok)
+  claude-review -s <id-prefix>  attach directly to a session id (prefix ok), in
+                                any project folder
   claude-review -p <path|slug>  review a different project (see note below)
   claude-review -l              list recent sessions and exit (no TUI)
   claude-review -V              print version and exit
@@ -40,7 +41,7 @@ import sys, os, re, json, glob, time, shutil
 # Single source of truth for the version when running from a source checkout
 # (pip-installed runs read it from package metadata instead). Kept in sync with
 # pyproject.toml by a release-hygiene test.
-__version__ = "0.5.2"
+__version__ = "0.5.3"
 
 # termios/tty/select are POSIX-only and only needed for the interactive TUI.
 # Imported lazily inside RawInput so that --help, --version, and -l still work
@@ -1245,6 +1246,23 @@ def resolve_proj(slug):
     return encoded
 
 
+def find_session(sid, proj, search_all=True):
+    """Transcripts for session id (or prefix) `sid`, most recent first, plus
+    whether they came from the cross-project search. Looks in `proj` first; on
+    no match and with `search_all`, every folder under PROJ_ROOT. Claude Code
+    files a transcript under the folder a session was STARTED in and keeps
+    appending there after a --resume from anywhere else, so a resumed session
+    often runs in one folder and is filed under another."""
+    pat = glob.escape(sid) + "*.jsonl"
+    hits = glob.glob(os.path.join(glob.escape(proj), pat))
+    wide = False
+    if not hits and search_all and os.path.isdir(PROJ_ROOT):
+        hits = glob.glob(os.path.join(glob.escape(PROJ_ROOT), "*", pat))
+        wide = True
+    hits.sort(key=_safe_mtime, reverse=True)
+    return hits, wide
+
+
 def _version():
     try:
         from importlib.metadata import version, PackageNotFoundError
@@ -1347,13 +1365,39 @@ def main(argv=None):
               "-h, -V, and -l work without it.", file=sys.stderr)
         return 1
 
+    # -s resolves before the wait below: the session may be filed under another
+    # project folder, so an empty or missing current project is no reason to wait.
+    # The pane then pins to the file found, and the picker (s) opens its folder.
+    direct = None
+    # A missing explicit -p folder falls through to the project hints below.
+    if sid and not do_list and (slug is None or os.path.isdir(proj)):
+        hits, wide = find_session(sid, proj, search_all=slug is None)
+        if not hits:
+            where = f"any project under {PROJ_ROOT}" if slug is None else proj
+            print(f"no session matching '{sid}' in {where}", file=sys.stderr)
+            print("Try 'claude-review -l' to see available session ids.", file=sys.stderr)
+            return 1
+        if wide and len(hits) > 1:
+            print(f"'{sid}' matches {len(hits)} sessions — pass more of the id:",
+                  file=sys.stderr)
+            for h in hits:
+                s = parse_turn(h)
+                q = (oneline(s["question"]) or "(no prompt)")[:60]
+                print(f"  {s['id']}  {os.path.basename(os.path.dirname(h))}  {q}",
+                      file=sys.stderr)
+            return 1
+        # Within one project an ambiguous prefix attaches to the most recently
+        # active match rather than an arbitrary glob order.
+        direct = hits[0]
+        proj = os.path.dirname(direct)
+
     # Brand-new-session race: claude-review launched the instant Claude Code
     # starts, before the first transcript is flushed — so the project dir may
     # not exist (or be empty) for a beat. When the project was derived from cwd
     # (no explicit -p) and we're at an interactive POSIX terminal, WAIT for a
     # session to appear instead of erroring out. An explicit -p that's missing
     # is treated as a typo and errors immediately with suggestions.
-    if not _has_sessions(proj):
+    if direct is None and not _has_sessions(proj):
         can_wait = slug is None and not do_list and sys.stdin.isatty() and os.name == "posix"
         if not can_wait:
             if os.path.isdir(proj):
@@ -1384,18 +1428,6 @@ def main(argv=None):
             print(f"{flag} {s['id'][:8]}  {fmt_age(now - s['mtime']):>4}  "
                   f"{short_model(s['model']):<12}  {q}")
         return 0
-
-    direct = None
-    if sid:
-        hits = glob.glob(os.path.join(proj, f"{sid}*.jsonl"))
-        if not hits:
-            print(f"no session matching '{sid}' in {proj}", file=sys.stderr)
-            print("Try 'claude-review -l' to see available session ids.", file=sys.stderr)
-            return 1
-        # An ambiguous prefix can match several sessions — attach to the most
-        # recently active one rather than an arbitrary glob order.
-        hits.sort(key=_safe_mtime, reverse=True)
-        direct = hits[0]
 
     if not sys.stdin.isatty():
         print("claude-review needs an interactive terminal (stdin is not a tty).",

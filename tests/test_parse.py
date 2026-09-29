@@ -915,3 +915,102 @@ def test_help_guide_is_two_columns_wide_and_one_column_narrow(tmp_path):
     o = outs[100]
     assert o.index("pins to one Claude Code session") < o.index("MOVE") < o.index("DIAGNOSTICS")
     assert "transcript" in o and "last write" in o and ("idle" in o or "working" in o)
+
+
+# --------------------------------------------------------------------------- -s across projects
+# Claude Code files a transcript under the folder a session was started in and
+# keeps appending there after a --resume from anywhere else, so -s must find a
+# session filed under another project folder.
+def _session(root, folder, sid, prompt="hello"):
+    d = root / folder
+    d.mkdir(parents=True, exist_ok=True)
+    f = d / f"{sid}.jsonl"
+    write_jsonl(f, [user(prompt), assistant([text_block("hi")])])
+    return f
+
+
+class _TTY:
+    def isatty(self):
+        return True
+
+
+class _NoRaw:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def _attach(monkeypatch, root, here, argv):
+    """Run main() with the TUI stubbed out; return (exit code, path it opened)."""
+    opened = []
+    monkeypatch.setattr(cr, "PROJ_ROOT", str(root))
+    monkeypatch.setattr(cr, "resolve_proj",
+                        lambda slug: str(root / (slug or here)))
+    monkeypatch.setattr(cr.sys, "stdin", _TTY())
+    monkeypatch.setattr(cr, "RawInput", _NoRaw)
+    monkeypatch.setattr(cr, "review", lambda path, rawin: opened.append(path) or "quit")
+    code = cr.main(argv)
+    return code, (opened[0] if opened else None)
+
+
+def test_session_in_current_project(tmp_path, monkeypatch):
+    here = _session(tmp_path, "-home-u-clod", "aaaa1111-0000")
+    _session(tmp_path, "-home-u", "aaaa1111-9999")     # same prefix elsewhere
+    code, opened = _attach(monkeypatch, tmp_path, "-home-u-clod", ["-s", "aaaa1111"])
+    assert code == 0 and opened == str(here)
+
+
+def test_session_filed_under_another_project(tmp_path, monkeypatch):
+    _session(tmp_path, "-home-u-clod", "bbbb2222-0000")
+    there = _session(tmp_path, "-home-u", "7e123757-5576")
+    code, opened = _attach(monkeypatch, tmp_path, "-home-u-clod", ["-s", "7e123757"])
+    assert code == 0 and opened == str(there)
+
+
+def test_session_found_when_current_project_does_not_exist(tmp_path, monkeypatch):
+    there = _session(tmp_path, "-home-u", "7e123757-5576")
+    code, opened = _attach(monkeypatch, tmp_path, "-home-u-new", ["-s", "7e12"])
+    assert code == 0 and opened == str(there)
+
+
+def test_ambiguous_prefix_across_projects_lists_and_fails(tmp_path, monkeypatch, capsys):
+    _session(tmp_path, "-home-u-a", "cccc3333-aaaa", prompt="deploy the thing")
+    _session(tmp_path, "-home-u-b", "cccc3333-bbbb", prompt="fix the build")
+    code, opened = _attach(monkeypatch, tmp_path, "-home-u-clod", ["-s", "cccc"])
+    err = capsys.readouterr().err
+    assert code == 1 and opened is None
+    assert "cccc3333-aaaa  -home-u-a  deploy the thing" in err
+    assert "cccc3333-bbbb  -home-u-b  fix the build" in err
+
+
+def test_no_match_anywhere(tmp_path, monkeypatch, capsys):
+    _session(tmp_path, "-home-u", "dddd4444-0000")
+    code, opened = _attach(monkeypatch, tmp_path, "-home-u", ["-s", "ffff"])
+    assert code == 1 and opened is None
+    assert "no session matching 'ffff' in any project" in capsys.readouterr().err
+
+
+def test_explicit_project_wins_and_is_not_widened(tmp_path, monkeypatch, capsys):
+    _session(tmp_path, "-home-u-clod", "eeee5555-0000")
+    there = _session(tmp_path, "-home-u", "eeee5555-1111")
+    code, opened = _attach(monkeypatch, tmp_path, "-home-u-clod",
+                           ["-s", "eeee5555", "-p", "-home-u"])
+    assert code == 0 and opened == str(there)
+    code, opened = _attach(monkeypatch, tmp_path, "-home-u-clod",
+                           ["-s", "7e12", "-p", "-home-u"])
+    assert code == 1 and opened is None
+    assert "any project" not in capsys.readouterr().err
+
+
+def test_cross_project_search_honors_claude_config_dir(tmp_path, monkeypatch):
+    cfg = tmp_path / "relocated"
+    there = _session(cfg / "projects", "-home-u", "7e123757-5576")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+    spec = importlib.util.spec_from_file_location("claude_review_cfg", _ROOT / "claude_review.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod.PROJ_ROOT == str(cfg / "projects")
+    hits, wide = mod.find_session("7e12", str(cfg / "projects" / "-home-u-clod"))
+    assert hits == [str(there)] and wide

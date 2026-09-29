@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.3] — 2026-09-29
+
+### Fixed
+- **`-s <id>` finds a session in any project folder.** Claude Code files a
+  transcript under the folder a session was started in and keeps appending there
+  after a `--resume` from anywhere else, so a resumed session often runs in one
+  folder and is filed under another. `-s` now looks in the current project first,
+  then in every folder under `~/.claude/projects/` (or `$CLAUDE_CONFIG_DIR`). A
+  prefix that matches sessions in several folders lists them (id, folder, first
+  prompt) and exits non-zero. An explicit `-p` still limits the search to that
+  project. The pane stays on the file it found, and `s` opens that folder's picker.
+
 ## [0.5.2] — 2026-09-22
 
 ### Changed

@@ -25,7 +25,7 @@ Then just ask Claude *"open a review pane for this session"* — it resolves the
 ### Or install the CLI directly
 
 ```bash
-pipx install git+https://github.com/r3al1tym/claude-review@v0.5.2
+pipx install git+https://github.com/r3al1tym/claude-review@v0.5.3
 claude-review
 ```
 
@@ -45,7 +45,7 @@ Run Claude Code in one pane and `claude-review` in the other; it follows the lat
 
 ```bash
 claude-review                 # pick a recent session, then review it
-claude-review -s <id-prefix>  # attach directly to a session id
+claude-review -s <id-prefix>  # attach to a session id, in any project folder
 claude-review -p <path|slug>  # review another project (path or Claude slug)
 claude-review -l              # list recent sessions and exit
 claude-review --help          # all flags and keys
@@ -53,7 +53,7 @@ claude-review --help          # all flags and keys
 
 **Keys:** `?` opens the guide in the pane: what claude-review is for, every key grouped by intent, and a diagnostics block (session, model, project, transcript, turn, last write). `Tab` surfaces · `y` copy the current surface · `f` freeze · `↑`/`↓` or `j`/`k` scroll (mouse wheel works too) · `space`/`b` page · `g`/`G` top/bottom · `←`/`→` (or `h`/`l`, `[`/`]`) earlier/later turn · `s` switch session · `r` refresh (back to the latest turn) · `q` quit.
 
-**Reviewing another project:** run `claude-review` from the project directory, or pass `-p` an absolute path. If a lookup ever misses, run `ls ~/.claude/projects/` and pass the literal directory name with `-p`. If your `~/.claude` lives elsewhere, set `CLAUDE_CONFIG_DIR`. ([slug details](docs/troubleshooting.md))
+**Reviewing another project:** `-s <id>` finds a session in any project folder, including a resumed session filed under the folder it was started in. To browse another project, run `claude-review` from the project directory, or pass `-p` an absolute path. If a lookup ever misses, run `ls ~/.claude/projects/` and pass the literal directory name with `-p`. If your `~/.claude` lives elsewhere, set `CLAUDE_CONFIG_DIR`. ([slug details](docs/troubleshooting.md))
 
 To try the UI with no live session, a sample transcript ships in the repo: `claude-review -p "$PWD/examples"` (from a clone).
 

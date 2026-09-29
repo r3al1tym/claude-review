@@ -49,13 +49,14 @@ Read the final line:
   `$HOME/.local/bin/claude-review -s <id>`, and tell the user to add
   `~/.local/bin` to PATH (or open a fresh login pane) for the short form to work.
 - `SETUP_FAIL <reason>` — tell the user the reason; offer the manual install
-  (`pipx install git+https://github.com/r3al1tym/claude-review@v0.5.2`).
+  (`pipx install git+https://github.com/r3al1tym/claude-review@v0.5.3`).
 
 ### 2. Resolve which session the user means
 
 - **"this session" / "current" / unspecified** (the common case): the env var
   `CLAUDE_CODE_SESSION_ID` **is** the session running right now —
   `printf '%s\n' "$CLAUDE_CODE_SESSION_ID"`. Use it directly; no picker needed.
+  `-s` finds the session in any project folder, so no `-p` is needed.
 - **A different session they describe** ("the one about the deploy"): run
   `claude-review -l` (lists `● id  age  model  first-prompt`), match on the prompt
   text, take the 8-char id.
@@ -78,9 +79,8 @@ Give a single, copy-pasteable line and say to run it in their **other** pane:
 claude-review -s <id>
 ```
 
-(prefix `-p <slug>` if it's another project). Use the 8-char id prefix — it's
-enough and reads cleaner. Confirm what it resolved to ("this session,
-auto-detected" / "the session about X").
+Use the 8-char id prefix — it's enough and reads cleaner. Confirm what it
+resolved to ("this session, auto-detected" / "the session about X").
 
 ## Keys to mention if helpful
 
