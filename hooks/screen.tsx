@@ -332,7 +332,10 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
   const head = headRow(s, surface, lines, scroll, col, lifted)
   const dimmed = (y: number): boolean => s.dim && scroll + y >= lead.length
   const inks = [1, ...window.map((_, y) => (dimmed(y) ? DIM : 1))]
-  const page = paintPage([textLine(head), ...window], col, bodyW, bodyH + 1, inks)
+  // the fore-edge sits beside the body rows, under the head row's spacer
+  const marks = maxScroll > 0 ? paintEdge(lines.map(markOf), bodyH, scroll, bodyH) : null
+  const page = { ...paintPage([textLine(head), ...window], col, W, bodyH + 1, inks), edge: W - bodyW }
+  if (marks) for (let y = 0; y < bodyH; y++) page.cells.set(marks.subarray(y * 6, y * 6 + 6), ((y + 1) * W + bodyW) * 3)
   const painted = paint?.(page) ?? null
   const dimInk = (color: string): string => hex(mix(GROUND, rgb(color), DIM))
   const dim = (spans: readonly Span[]): Span[] => spans.map(sp => ({ ...sp, style: { ...sp.style, color: dimInk(sp.style?.color ?? INK.body) } }))
@@ -407,11 +410,11 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
     return body
   }
 
-  const edge = maxScroll > 0
+  const edge = marks
     ? (
         <Box flexDirection="column">
           <Text>{'  '}</Text>
-          <Raster key="edge" columns={2} rows={bodyH} cells={encode(paintEdge(lines.map(markOf), bodyH, scroll, bodyH))} />
+          <Raster key="edge" columns={2} rows={bodyH} cells={encode(marks)} />
         </Box>
       )
     : null
@@ -419,12 +422,15 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
   const tree = (
     <Box flexDirection="column" backgroundColor={INK.ground}>
       <Raster key="lamp" columns={W} rows={1} cells={encode(paintLamp(W, col, s.lamp, s.deep))} />
-      <Box flexDirection="row">
-        <Box flexDirection="column" width={bodyW}>
-          {painted ? <Raster key="page" columns={bodyW} rows={bodyH + 1} cells={encode(painted)} /> : [row(head, col.left), ...textBody()]}
-        </Box>
-        {edge}
-      </Box>
+      {painted
+        // a settle paints the body and its fore-edge as one grid, so the edge rises with its rows
+        ? <Raster key="page" columns={W} rows={bodyH + 1} cells={encode(painted)} />
+        : (
+            <Box flexDirection="row">
+              <Box flexDirection="column" width={bodyW}>{[row(head, col.left), ...textBody()]}</Box>
+              {edge}
+            </Box>
+          )}
       <Text> </Text>
       {row(keyRow(s, col, surfaces, active, state), 0)}
     </Box>

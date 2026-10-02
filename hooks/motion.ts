@@ -47,7 +47,7 @@ function riseStarts(to: Page): number[] {
   const rowLen = to.columns * 3
   const units = to.units ?? Array.from({ length: to.rows }, (_, y) => y)
   const shows = (y: number): boolean => {
-    for (let i = y * rowLen; i < (y + 1) * rowLen; i += 3) if (to.cells[i] !== 0x20 || to.cells[i + 2] !== GROUND) return true
+    for (let i = y * rowLen; i < (y + 1) * rowLen - (to.edge ?? 0) * 3; i += 3) if (to.cells[i] !== 0x20 || to.cells[i + 2] !== GROUND) return true
     return false
   }
   const place = new Map<number, number>()

@@ -44,8 +44,9 @@ export function mix(a: number, b: number, t: number): number {
 
 // A grid of cells, row-major [codePoint, fg, bg] triplets. `units` gives each
 // row the first row of the form it belongs to (a code block's rows share one),
-// so the form moves as a whole.
-export type Page = { columns: number; rows: number; cells: Uint32Array; units?: number[] }
+// so the form moves as a whole; `edge` counts the columns at the right that
+// hold the fore-edge, which rise with their rows and take no time of their own.
+export type Page = { columns: number; rows: number; cells: Uint32Array; units?: number[]; edge?: number }
 
 export function blankPage(columns: number, rows: number): Page {
   const cells = new Uint32Array(columns * rows * 3)
