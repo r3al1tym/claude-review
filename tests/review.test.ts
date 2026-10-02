@@ -59,7 +59,7 @@ function light(on: On, env: Record<string, string> = { COLORTERM: 'truecolor' })
   return { clock, blits }
 }
 
-const SETTLED = 1000 // past the longest settle
+const SETTLED = 1300 // past the longest settle
 
 // one row of a Raster's cells, as text
 function rowText(cells: string, columns: number, row: number): string {
