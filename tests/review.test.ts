@@ -87,7 +87,7 @@ test('the terminal pane draws the page: the lamp, the reply in a set column, the
   const answer = await ui.find({ type: 'Text', text: 'Second answer, the latest.' })
   expect(answer?.text.startsWith('    Second answer')).toBe(true) // the 4-cell gutter
   expect(await ui.find({ type: 'Text', text: /^done/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'f freeze · h l turns · m more' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'f freeze · h l turns · m keys' })).toBeDefined()
   // response leads; the approved plan and the tasks are tabs beside it
   expect(await ui.find({ type: 'Text', text: /t response · plan · tasks/ })).toBeDefined()
   await ui.unmount()
@@ -213,6 +213,13 @@ test('a pending AskUserQuestion leads as the question surface, under the lamp at
   expect(await ui.find({ type: 'Text', text: 'Blue: calm' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Waiting for your answer' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^waiting/ })).toBeDefined()
+  // the question's words stay in the lamp's warm light until it is answered
+  const ask = await ui.find({ type: 'Text', text: 'Which color?' })
+  const inks = (ask?.children ?? [])
+    .filter((c): c is { props: Record<string, unknown> } => typeof c === 'object')
+    .flatMap(c => (typeof c.props.color === 'string' ? [c.props.color] : []))
+  expect(inks.length).toBeGreaterThan(0)
+  expect(inks.every(c => Number.parseInt(c.slice(1, 3), 16) > Number.parseInt(c.slice(5, 7), 16))).toBe(true)
   await ui.unmount()
 })
 
@@ -226,7 +233,7 @@ for (const key of ['later', 'earlier'] as const) {
     await $.command.run(TOGGLE)
 
     const ui = await mountTerminal($)
-    expect(await ui.find({ type: 'Text', text: 'Replies appear here as Claude writes them.' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'The reply appears here as Claude writes it.' })).toBeDefined()
     await ui.press({ key: key === 'later' ? 'key-l' : 'key-h' })
 
     messages = [prompt('first ask'), reply('The first answer.')]

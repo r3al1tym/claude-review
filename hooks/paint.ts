@@ -17,6 +17,10 @@ export const rgb = (hex: string): number => Number.parseInt(hex.slice(1), 16)
 export const hex = (n: number): string =>
   `#${[16, 8, 0].map(sh => (Math.round(((n >> sh) & 0xff) / 17) * 17).toString(16).padStart(2, '0')).join('')}`
 
+// A colour at full depth, for a Text-only shade that falls between two
+// 12-bit steps (a dimmed code panel).
+export const exact = (n: number): string => `#${n.toString(16).padStart(6, '0')}`
+
 export const GROUND = rgb(INK.ground)
 // The lamp dims as a tungsten filament does: full, it burns warm white;
 // lower, it goes amber and then a brown ember, short of the red that reads
@@ -69,9 +73,9 @@ export function encode(cells: Uint32Array): string {
 // paints as spaces (a Raster takes width-1 glyphs only), a control as one.
 function put(page: Page, y: number, x: number, end: number, spans: readonly Span[], ink: number, bg?: number): number {
   for (const sp of spans) {
+    // a dimmed page dims its ink and its code panels alike
     const fg = mix(GROUND, rgb(sp.style?.color ?? INK.body), ink)
-    // a dimmed page dims its ink; a code panel keeps its ground, so the block still reads as one
-    const back = sp.style?.bg !== undefined ? mix(GROUND, rgb(sp.style.bg), ink) : (bg ?? GROUND)
+    const back = mix(GROUND, sp.style?.bg !== undefined ? rgb(sp.style.bg) : (bg ?? GROUND), ink)
     for (const ch of sp.text) {
       const cp = ch.codePointAt(0) ?? 0x20
       const w = cellsOf(cp)

@@ -294,8 +294,9 @@ function stack(list: readonly Block[], width: number, base: Style | undefined, i
   const out: Line[] = []
   list.forEach((b, n) => {
     const prev = list[n - 1]
-    // a section heading sits on its own text: air above it, none below
-    const tight = (inItem && b.kind === 'list' && prev?.kind === 'para') || (prev?.kind === 'heading' && prev.level > 1 && b.kind !== 'code')
+    // a section heading sits on its own text: air above it, none below; a
+    // code panel or a table keeps its row of air, as a form of its own
+    const tight = (inItem && b.kind === 'list' && prev?.kind === 'para') || (prev?.kind === 'heading' && prev.level > 1 && b.kind !== 'code' && b.kind !== 'table')
     if (n > 0 && !tight) out.push(blank())
     out.push(...block(b, width, base))
   })

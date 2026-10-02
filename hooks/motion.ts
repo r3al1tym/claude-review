@@ -22,6 +22,11 @@ function tint(ink: number): number {
   return ch(16) | ch(8) | ch(0)
 }
 
+// What waits on you stays in the lamp's light until you answer it: its ink
+// held partway to the lamp's hue, where a settle would have cooled it.
+const HELD = 0.3
+export const held = (ink: number): number => mix(ink, tint(ink), HELD)
+
 // the longest a settle runs, whatever the page holds
 export const SETTLE_MS = SINK_MS + STAGGER_SPAN_MS + RISE_MS
 

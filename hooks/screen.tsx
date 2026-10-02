@@ -10,7 +10,8 @@ import type { ElementTable } from 'claude-code'
 import type { ReviewTask, ReviewTurn, ReviewView } from '../types'
 import { INK, layout } from './markdown'
 import type { Line } from './markdown'
-import { GROUND, encode, hex, markOf, mix, paintEdge, paintLamp, paintPage, rgb } from './paint'
+import { GROUND, encode, exact, hex, markOf, mix, paintEdge, paintLamp, paintPage, rgb } from './paint'
+import { held } from './motion'
 import type { Light } from './motion'
 import type { Column, Page } from './paint'
 import { cells, clip, oneline, spanCells, wrap } from './text'
@@ -90,7 +91,7 @@ export function surfacesFor(turn: ReviewTurn, tasks: readonly ReviewTask[], hist
   }
   if (out.length > 0) return out
   if (historical) return [note('This turn ended without a reply.')]
-  return [note(working ? 'The reply appears here as Claude writes it.' : 'Replies appear here as Claude writes them.')]
+  return [note('The reply appears here as Claude writes it.')]
 }
 
 // ---------------------------------------------------------------- the guide
@@ -242,7 +243,7 @@ function keyRow(s: ScreenInput, col: Column, surfaces: readonly Surface[], activ
     if (s.view.help) return [{ text: '↑↓ scroll · m close', style: meta }]
     if (s.view.flash) return [{ text: `✓ ${s.view.flash}`, style: { color: INK.bright } }]
     if (!s.isFocused) return [{ text: 'ctrl+x ⇥ focus', style: meta }]
-    const cues = [s.view.frozen ? 'f unfreeze' : 'f freeze', ...(s.turnCount > 1 ? ['h l turns'] : []), 'm more']
+    const cues = [s.view.frozen ? 'f unfreeze' : 'f freeze', ...(s.turnCount > 1 ? ['h l turns'] : []), 'm keys']
     return [{ text: cues.join(' · '), style: meta }]
   })()
 
@@ -313,12 +314,15 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
   // when it is short enough to leave the room
   // and its eyebrow travels with it
   const ask = waitingFor(s, surface)
+  const lit = (spans: readonly Span[]): Span[] =>
+    spans.map(sp => ({ ...sp, style: { ...sp.style, color: hex(held(rgb(sp.style?.color ?? INK.body))) } }))
+  const asked = ask === null ? content : content.map(l => (l.kind === 'text' ? { ...l, spans: lit(l.spans) } : l))
   const room = bodyH - lead.length - content.length - 2
   const lifted = ask !== null && room > 2
   const lift = lifted
     ? [...Array.from({ length: Math.floor(room / 3) }, blank), textLine([{ text: ask, style: { color: INK.bright, italic: true } }])]
     : []
-  const lines = [...lift, ...lead, ...content, blank()]
+  const lines = [...lift, ...lead, ...asked, blank()]
 
   const maxScroll = Math.max(0, lines.length - bodyH)
   const scroll = Math.max(0, Math.min(s.view.scroll, maxScroll))
@@ -392,7 +396,7 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
       body.push(
         <Box flexDirection="row">
           {row(l.prefix, col.left)}
-          <Box flexDirection="column" width={Math.max(4, col.measure - preW)} paddingX={1} backgroundColor={INK.codeBg}>
+          <Box flexDirection="column" width={Math.max(4, col.measure - preW)} paddingX={1} backgroundColor={s.dim ? exact(mix(GROUND, rgb(INK.codeBg), DIM)) : INK.codeBg}>
             {parts}
           </Box>
         </Box>,
