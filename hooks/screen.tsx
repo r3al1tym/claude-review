@@ -89,8 +89,8 @@ export function surfacesFor(turn: ReviewTurn, tasks: readonly ReviewTask[], hist
     out.push({ label: 'tasks', lines: width => taskLines(tasks, width), raw: tasks.map(t => `[${t.status}] ${t.content}`).join('\n') })
   }
   if (out.length > 0) return out
-  if (historical) return [note('(this turn produced no response text)')]
-  return [note(working ? '(no response yet, Claude is working)' : '(no response yet)')]
+  if (historical) return [note('This turn ended without a reply.')]
+  return [note(working ? 'The reply appears here as Claude writes it.' : 'Replies appear here as Claude writes them.')]
 }
 
 // ---------------------------------------------------------------- the guide
@@ -190,11 +190,12 @@ export function columnOf(columns: number): Column {
   return { left: gutter + Math.floor((room - measure) / 2), measure }
 }
 
+// The lamp is the one colour on the page; the words that name its state stay
+// grey, the state you set yourself (frozen) a step brighter.
 export function stateOf(s: Pick<ScreenInput, 'view' | 'waiting' | 'working' | 'turnCount'>): State {
-  const lamp: Style = { color: INK.lamp }
   const quiet: Style = { color: INK.quiet }
-  if (s.view.frozen) return { word: 'frozen', style: lamp }
-  if (s.waiting) return { word: 'waiting', style: lamp }
+  if (s.view.frozen) return { word: 'frozen', style: { color: INK.bright } }
+  if (s.waiting) return { word: 'waiting', style: { color: INK.bright } }
   if (s.working) return { word: 'working', style: quiet }
   return { word: s.turnCount > 0 ? 'done' : 'idle', style: quiet }
 }
@@ -219,8 +220,8 @@ function headRow(s: ScreenInput, surface: Surface, lines: readonly Line[], scrol
   }
   if (s.view.help) return []
   const ask = waitingFor(s, surface)
-  if (ask && !lifted) return at(ask, { color: INK.lamp })
-  if (s.dim) return at('Previous answer', { color: INK.quiet, italic: true })
+  if (ask && !lifted) return at(ask, { color: INK.bright, italic: true })
+  if (s.dim && s.prompt) return at(`› ${oneline(s.prompt)}`, { color: INK.bright })
   // a section's own heading at the top of the view needs no running head
   const top = lines[scroll]
   if (scroll > 0 && !(top?.kind === 'text' && top.head !== undefined)) {
@@ -239,7 +240,7 @@ function keyRow(s: ScreenInput, col: Column, surfaces: readonly Surface[], activ
 
   const right: Span[] = (() => {
     if (s.view.help) return [{ text: '↑↓ scroll · m close', style: meta }]
-    if (s.view.flash) return [{ text: `✓ ${s.view.flash}`, style: { color: INK.lamp } }]
+    if (s.view.flash) return [{ text: `✓ ${s.view.flash}`, style: { color: INK.bright } }]
     if (!s.isFocused) return [{ text: 'ctrl+x ⇥ focus', style: meta }]
     const cues = [s.view.frozen ? 'f unfreeze' : 'f freeze', ...(s.turnCount > 1 ? ['h l turns'] : []), 'm more']
     return [{ text: cues.join(' · '), style: meta }]
@@ -303,8 +304,10 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
   // an earlier turn, or a new prompt over the dimmed answer, leads with its
   // prompt, so a reply is never read out of context
   const content = s.view.help ? helpLines(s, col.measure, state) : surface.lines(col.measure)
-  const lead = !s.view.help && s.prompt
-    ? [textLine([{ text: clip(`› ${oneline(s.prompt)}`, col.measure), style: { color: s.dim ? INK.bright : INK.question } }]), blank()]
+  // the new prompt rides the head row, and the dimmed answer is named above itself
+  const lead = s.view.help ? []
+    : s.dim ? [blank(), textLine([{ text: 'Previous answer', style: { color: INK.quiet, italic: true } }])]
+    : s.prompt ? [textLine([{ text: clip(`› ${oneline(s.prompt)}`, col.measure), style: { color: INK.question } }]), blank()]
     : []
   // what waits on you sits a third of the way down, where the eye rests,
   // when it is short enough to leave the room
@@ -313,7 +316,7 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
   const room = bodyH - lead.length - content.length - 2
   const lifted = ask !== null && room > 2
   const lift = lifted
-    ? [...Array.from({ length: Math.floor(room / 3) }, blank), textLine([{ text: ask, style: { color: INK.lamp } }])]
+    ? [...Array.from({ length: Math.floor(room / 3) }, blank), textLine([{ text: ask, style: { color: INK.bright, italic: true } }])]
     : []
   const lines = [...lift, ...lead, ...content, blank()]
 

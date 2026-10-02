@@ -226,7 +226,7 @@ for (const key of ['later', 'earlier'] as const) {
     await $.command.run(TOGGLE)
 
     const ui = await mountTerminal($)
-    expect(await ui.find({ type: 'Text', text: '(no response yet)' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Replies appear here as Claude writes them.' })).toBeDefined()
     await ui.press({ key: key === 'later' ? 'key-l' : 'key-h' })
 
     messages = [prompt('first ask'), reply('The first answer.')]

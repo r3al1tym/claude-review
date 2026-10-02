@@ -143,31 +143,30 @@ export function paintLamp(columns: number, col: Column, light: Light, deep = tru
 
 // What one row of the reply is, for the fore-edge.
 export type Mark = 'blank' | 'text' | 'code' | 'head'
-const RANK: Record<Mark, number> = { blank: 0, text: 1, code: 2, head: 3 }
 
 export const markOf = (l: Line): Mark =>
   l.kind === 'code' ? 'code' : l.head !== undefined ? 'head' : l.spans.some(s => s.text.trim() !== '') ? 'text' : 'blank'
 
-// The fore-edge, two cells wide: the whole reply mapped onto `rows` cells,
-// each showing the strongest mark it covers (prose a thin grey rule, code a
-// full block, a heading a bright tick), and beside it a thin bar of lamp
-// light along the rows in view.
+// The fore-edge, two cells wide, read like a ruler: a short tick wherever a
+// section starts, and beside the ticks a bar of lamp light along the rows in
+// view. Prose and code leave the edge bare, so the marks are few and mean one
+// thing each.
 export function paintEdge(marks: readonly Mark[], rows: number, scroll: number, shown: number): Uint32Array {
   const page = blankPage(2, rows)
   const n = Math.max(1, marks.length)
   const at = (i: number): number => Math.floor((i * n) / rows)
   const lit0 = Math.min(rows - 1, Math.floor((scroll * rows) / n))
   const lit1 = Math.max(lit0 + 1, Math.round(((scroll + shown) * rows) / n))
-  const light = lampColour(0.86)
+  const light = lampColour(0.72)
   for (let y = 0; y < rows; y++) {
-    let mark: Mark = 'blank'
+    const lit = y >= lit0 && y < lit1
+    // a section starts in this cell when a heading's first row falls in it
+    let starts = false
     for (let i = at(y); i < Math.max(at(y) + 1, at(y + 1)); i++) {
-      const m = marks[i] ?? 'blank'
-      if (RANK[m] > RANK[mark]) mark = m
+      if (marks[i] === 'head' && marks[i - 1] !== 'head') starts = true
     }
-    const ink = { blank: GROUND, text: 0x555555, code: 0x444444, head: 0x999999 }[mark]
-    page.cells.set([mark === 'code' ? 0x2588 : 0x2590, ink, GROUND], y * 6)
-    if (y >= lit0 && y < lit1) page.cells.set([0x258e, light, GROUND], y * 6 + 3)
+    if (starts) page.cells.set([0x2500, lit ? 0xaaaaaa : 0x666666, GROUND], y * 6)
+    if (lit) page.cells.set([0x258e, light, GROUND], y * 6 + 3)
   }
   return page.cells
 }

@@ -384,7 +384,7 @@ export const register: Register = (on, options) => {
     const active = Math.min(v.surface, surfaces.length - 1)
     laid = { ...laid, maxScroll: 0, bodyRows: 10, surfaces, active }
     const shown = surfaces[active]!
-    const body = shown.raw !== '' ? shown.raw : '_No response yet._'
+    const body = shown.raw !== '' ? shown.raw : '_Replies appear here as Claude writes them._'
     const position = snap.turns.length === 0 ? 'no turns yet'
       : `turn ${cursor + 1} of ${snap.turns.length}${v.frozen ? ' · frozen' : isFollowing(snap, v) ? ' · live' : ''}`
 
