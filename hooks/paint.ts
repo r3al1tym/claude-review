@@ -38,8 +38,10 @@ export function mix(a: number, b: number, t: number): number {
   return ch(16) | ch(8) | ch(0)
 }
 
-// A grid of cells, row-major [codePoint, fg, bg] triplets.
-export type Page = { columns: number; rows: number; cells: Uint32Array }
+// A grid of cells, row-major [codePoint, fg, bg] triplets. `units` gives each
+// row the first row of the form it belongs to (a code block's rows share one),
+// so the form moves as a whole.
+export type Page = { columns: number; rows: number; cells: Uint32Array; units?: number[] }
 
 export function blankPage(columns: number, rows: number): Page {
   const cells = new Uint32Array(columns * rows * 3)
@@ -92,8 +94,10 @@ export type Column = { left: number; measure: number }
 // left edge, code rows as a panel the measure wide (one cell of padding a
 // side). `inks` dims a row toward the ground, 1 being full ink.
 export function paintPage(window: readonly Line[], col: Column, columns: number, rows: number, inks: readonly number[]): Page {
-  const page = blankPage(columns, rows)
+  const page: Page = { ...blankPage(columns, rows), units: Array.from({ length: rows }, (_, y) => y) }
   window.slice(0, rows).forEach((l, y) => {
+    const prev = window[y - 1]
+    if (l.kind === 'code' && prev?.kind === 'code' && prev.block === l.block) page.units![y] = page.units![y - 1]!
     const ink = inks[y] ?? 1
     if (l.kind === 'text') {
       put(page, y, col.left, columns, l.spans, ink)
@@ -148,16 +152,15 @@ export const markOf = (l: Line): Mark =>
   l.kind === 'code' ? 'code' : l.head !== undefined ? 'head' : l.spans.some(s => s.text.trim() !== '') ? 'text' : 'blank'
 
 // The fore-edge, two cells wide, read like a ruler: a short tick wherever a
-// section starts, and beside the ticks a bar of lamp light along the rows in
-// view. Prose and code leave the edge bare, so the marks are few and mean one
-// thing each.
+// section starts, and beside the ticks a grey bar along the rows in view.
+// Prose and code leave the edge bare, so the marks are few and mean one thing
+// each, and all of it is grey: the lamp stays the page's only light.
 export function paintEdge(marks: readonly Mark[], rows: number, scroll: number, shown: number): Uint32Array {
   const page = blankPage(2, rows)
   const n = Math.max(1, marks.length)
   const at = (i: number): number => Math.floor((i * n) / rows)
   const lit0 = Math.min(rows - 1, Math.floor((scroll * rows) / n))
   const lit1 = Math.max(lit0 + 1, Math.round(((scroll + shown) * rows) / n))
-  const light = lampColour(0.72)
   for (let y = 0; y < rows; y++) {
     const lit = y >= lit0 && y < lit1
     // a section starts in this cell when a heading's first row falls in it
@@ -166,7 +169,7 @@ export function paintEdge(marks: readonly Mark[], rows: number, scroll: number, 
       if (marks[i] === 'head' && marks[i - 1] !== 'head') starts = true
     }
     if (starts) page.cells.set([0x2500, lit ? 0xaaaaaa : 0x666666, GROUND], y * 6)
-    if (lit) page.cells.set([0x258e, light, GROUND], y * 6 + 3)
+    if (lit) page.cells.set([0x258e, 0x666666, GROUND], y * 6 + 3)
   }
   return page.cells
 }

@@ -22,8 +22,8 @@ function tint(ink: number): number {
   return ch(16) | ch(8) | ch(0)
 }
 
-const stagger = (rows: number): number => Math.min(18, STAGGER_SPAN_MS / Math.max(1, rows))
-export const settleMs = (rows: number): number => SINK_MS + stagger(rows) * Math.max(0, rows - 1) + RISE_MS
+// the longest a settle runs, whatever the page holds
+export const SETTLE_MS = SINK_MS + STAGGER_SPAN_MS + RISE_MS
 
 const easeIn = (p: number): number => p * p
 const easeOut = (p: number): number => 1 - (1 - p) ** 3
@@ -35,14 +35,31 @@ function lit(ink: number, p: number): number {
   return p < 1 / 3 ? mix(GROUND, warm, easeOut(p * 3)) : mix(warm, ink, easeOut((p - 1 / 3) * 1.5))
 }
 
+// Rows rise by unit: a code block's rows as one panel, every other row on
+// its own. Only units that show something take a place in the stagger, so
+// blank rows (the air above a question, between paragraphs) cost no time.
+function riseStarts(to: Page): number[] {
+  const rowLen = to.columns * 3
+  const units = to.units ?? Array.from({ length: to.rows }, (_, y) => y)
+  const shows = (y: number): boolean => {
+    for (let i = y * rowLen; i < (y + 1) * rowLen; i += 3) if (to.cells[i] !== 0x20 || to.cells[i + 2] !== GROUND) return true
+    return false
+  }
+  const place = new Map<number, number>()
+  for (let y = 0; y < to.rows; y++) if (!place.has(units[y]!) && shows(y)) place.set(units[y]!, place.size)
+  const step = Math.min(18, STAGGER_SPAN_MS / Math.max(1, place.size))
+  return units.map(u => SINK_MS + step * (place.get(u) ?? 0))
+}
+
 export function settleFrame(from: Page, to: Page, t: number): Uint32Array {
   const out = new Uint32Array(to.cells.length)
   const rowLen = to.columns * 3
   const sink = easeIn(Math.min(1, t / SINK_MS))
+  const starts = riseStarts(to)
   for (let y = 0; y < to.rows; y++) {
     const at = y * rowLen
     const same = from.cells.subarray(at, at + rowLen).every((v, i) => v === to.cells[at + i])
-    const start = SINK_MS + stagger(to.rows) * y
+    const start = starts[y]!
     for (let i = at; i < at + rowLen; i += 3) {
       if (same || t >= start + RISE_MS) {
         out.set(to.cells.subarray(i, i + 3), i)

@@ -46,7 +46,7 @@ The pane follows the live turn. Give it the keyboard with ctrl+x then Tab (until
 
 The lamp is the session's state. While Claude works it gathers into a short ember at the centre that breathes slowly; when the turn passes to you it opens across the column and holds; when a plan or a question waits on you it burns full and heavier, and the plan or question leads the page. A new reply settles in: the old page sinks and the new one is lit line by line from the top, each line passing through the lamp's warmth. While a new prompt runs, the last answer stays on the page, dimmed, under your prompt.
 
-A reply longer than the pane gets a fore-edge, a ruler down the right edge with a tick where each section starts and a bar of lamp light beside the rows in view, and once you scroll into it the row under the lamp names the section you are in. While the view is frozen or on an earlier turn, `new reply` lights up in the key row when a reply lands on the live turn.
+A reply longer than the pane gets a fore-edge, a ruler down the right edge with a tick where each section starts and a grey bar beside the rows in view, and once you scroll into it the row under the lamp names the section you are in. While the view is frozen or on an earlier turn, `new reply` lights up in the key row when a reply lands on the live turn.
 
 To change the default, set *Open on start* in `/config` (on: the pane opens by itself on a wide terminal; off: only `/claude-review` opens it). `claude plugin disable review-pane@claude-review` turns the mod off everywhere, and `enable` turns it back on.
 

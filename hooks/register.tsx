@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, UiPressArgument } from 'claude-code'
 
 import type { ReviewSnapshot, ReviewTurn, ReviewView } from '../types'
-import { lampLight, lampMoving, relight, settleFrame, settleMs } from './motion'
+import { SETTLE_MS, lampLight, lampMoving, relight, settleFrame } from './motion'
 import type { Lamp, LampState } from './motion'
 import { encode, paintLamp } from './paint'
 import type { Column, Page } from './paint'
@@ -200,7 +200,7 @@ function runLamp($: EngineInterface): void {
 
 // The body last drawn, as cells, and the session's reply then: when the
 // reply changes under a following view, the new page settles in from it. A
-// settle runs `from` to `to` over settleMs.
+// settle runs `from` to `to` over SETTLE_MS.
 let drawnPage: { page: Page; sig: string } | null = null
 let settle: { from: Page; to: Page; start: number } | null = null
 let settleTimer: Timer | null = null
@@ -214,7 +214,7 @@ function endSettle($: EngineInterface): void {
 
 async function settleTick($: EngineInterface): Promise<void> {
   const t = await $.clock.now()
-  if (!settle || t - settle.start >= settleMs(settle.to.rows)) return endSettle($)
+  if (!settle || t - settle.start >= SETTLE_MS) return endSettle($)
   const cells = encode(settleFrame(settle.from, settle.to, t - settle.start))
   // the first frames can come before the drawing that holds the Raster is
   // mounted; past that, a refused blit means the pane is gone or redrawn
