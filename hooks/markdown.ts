@@ -289,11 +289,14 @@ export function layout(src: string, width: number): Line[] {
 }
 
 // Blocks sit a blank row apart, except a list right under its line inside a
-// list item, which rich keeps tight.
+// list item, which rich keeps tight, and a section heading's first block.
 function stack(list: readonly Block[], width: number, base: Style | undefined, inItem: boolean): Line[] {
   const out: Line[] = []
   list.forEach((b, n) => {
-    if (n > 0 && !(inItem && b.kind === 'list' && list[n - 1]!.kind === 'para')) out.push(blank())
+    const prev = list[n - 1]
+    // a section heading sits on its own text: air above it, none below
+    const tight = (inItem && b.kind === 'list' && prev?.kind === 'para') || (prev?.kind === 'heading' && prev.level > 1 && b.kind !== 'code')
+    if (n > 0 && !tight) out.push(blank())
     out.push(...block(b, width, base))
   })
   return out
@@ -320,7 +323,8 @@ function block(b: Block, width: number, base: Style | undefined): Line[] {
     case 'code': {
       const id = ++blockSeq
       const row = (t: string, pad: boolean): Line => ({ kind: 'code', prefix: [], text: t, language: b.language, block: id, pad })
-      return [row('', true), ...b.lines.map(l => row(l, false)), row('', true)]
+      // the panel pads a cell a side
+      return [row('', true), ...b.lines.flatMap(l => softWrap(l, width - 2)).map(l => row(l, false)), row('', true)]
     }
     case 'quote': {
       const quoteStyle = merge(base, { color: INK.question, italic: true })
@@ -341,6 +345,31 @@ function block(b: Block, width: number, base: Style | undefined): Line[] {
     case 'table':
       return table(b, width, base)
   }
+}
+
+// A code line wider than the panel wraps where it offers a break (after a
+// space or one of , ; ( { [ =), else where it must; each continuation hangs
+// two cells under the line's own indent, so it never reads as a new line.
+export function softWrap(line: string, width: number): string[] {
+  if (cells(line) <= width || width < 8) return [line]
+  const hang = ' '.repeat(Math.min((/^ */.exec(line)?.[0].length ?? 0) + 2, Math.floor(width / 2)))
+  const out: string[] = []
+  let rest = [...line]
+  for (let first = true; cells(rest.join('')) > width; first = false) {
+    let used = 0
+    let fit = 0
+    let cut = 0
+    for (; fit < rest.length; fit++) {
+      used += cells(rest[fit]!)
+      if (used > width) break
+      if (/[\s,;({[=]/.test(rest[fit]!)) cut = fit + 1
+    }
+    if (cut <= (first ? 0 : hang.length)) cut = fit
+    out.push(rest.slice(0, cut).join('').trimEnd())
+    rest = [...hang, ...rest.slice(cut).join('').trimStart()]
+  }
+  out.push(rest.join(''))
+  return out
 }
 
 function table(b: Extract<Block, { kind: 'table' }>, width: number, base: Style | undefined): Line[] {

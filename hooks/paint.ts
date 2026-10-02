@@ -105,12 +105,18 @@ export function paintPage(window: readonly Line[], col: Column, columns: number,
 // The lamp: a line of light along the top edge of the column, cut square at
 // the column's ends. A quarter of a cell tall, it swells to half a cell as
 // it nears full, so waiting on you reads by its weight as well as its light.
-export function paintLamp(columns: number, col: Column, level: number): Uint32Array {
+//
+// A 256-colour terminal has no ramp between ember and full, so there the
+// lamp keeps three palette colours and breathes by its weight instead.
+export function paintLamp(columns: number, col: Column, level: number, deep = true): Uint32Array {
   const page = blankPage(columns, 1)
-  const light = lampColour(level)
-  const eighths = Math.round(2 + 2 * Math.max(0, Math.min(1, (level - 0.86) / 0.14)))
+  const full = Math.max(0, Math.min(1, (level - 0.86) / 0.14))
+  const light = deep ? lampColour(level) : level < 0.6 ? 0x875f00 : level < 0.95 ? 0xd78700 : 0xffaf5f
+  const eighths = deep || level >= 0.6
+    ? Math.round(2 + 2 * full)
+    : Math.round(1 + 2 * Math.max(0, Math.min(1, (level - 0.14) / 0.3)))
   // the top k eighths lit: the lower (8 - k) eighths block drawn in the ground
-  const cell = eighths === 4 ? [0x2580, light, GROUND] : [0x2581 + (7 - eighths), GROUND, light]
+  const cell = eighths === 4 ? [0x2580, light, GROUND] : eighths === 1 ? [0x2594, light, GROUND] : [0x2581 + (7 - eighths), GROUND, light]
   for (let x = col.left; x < Math.min(columns, col.left + col.measure); x++) page.cells.set(cell, x * 3)
   return page.cells
 }

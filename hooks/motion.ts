@@ -1,20 +1,31 @@
 // The pane's two motions, as pure functions of time: the settle, when a new
 // reply takes the page, and the lamp's level for the state the session is in.
 
-import { GROUND, mix } from './paint'
+import { GROUND, lampColour, mix } from './paint'
 import type { Page } from './paint'
 
 // The settle: the old page sinks into the ground together, then the new one
-// rises a line at a time from the top. A row the two pages share holds still.
-const SINK_MS = 180
-const RISE_MS = 260
-const STAGGER_SPAN_MS = 320
+// is lit a line at a time from the top. Each line's ink rises through the
+// lamp's warmth and cools to its own grey, so a band of light runs down the
+// page as the answer arrives. A row the two pages share holds still.
+const SINK_MS = 160
+const RISE_MS = 380
+const STAGGER_SPAN_MS = 420
+const WARM = lampColour(0.9)
+const WARMTH = 0.5 // how far a line's ink leans to the lamp at its peak
 
-const stagger = (rows: number): number => Math.min(16, STAGGER_SPAN_MS / Math.max(1, rows))
+const stagger = (rows: number): number => Math.min(18, STAGGER_SPAN_MS / Math.max(1, rows))
 export const settleMs = (rows: number): number => SINK_MS + stagger(rows) * Math.max(0, rows - 1) + RISE_MS
 
 const easeIn = (p: number): number => p * p
 const easeOut = (p: number): number => 1 - (1 - p) ** 3
+
+// A line's ink while it rises: out of the ground into the lamp's warmth by
+// the first third, then cooling to its own colour.
+function lit(ink: number, p: number): number {
+  const warm = mix(ink, WARM, WARMTH)
+  return p < 1 / 3 ? mix(GROUND, warm, easeOut(p * 3)) : mix(warm, ink, easeOut((p - 1 / 3) * 1.5))
+}
 
 export function settleFrame(from: Page, to: Page, t: number): Uint32Array {
   const out = new Uint32Array(to.cells.length)
@@ -30,8 +41,8 @@ export function settleFrame(from: Page, to: Page, t: number): Uint32Array {
       } else if (t < start) {
         out.set([from.cells[i]!, mix(from.cells[i + 1]!, GROUND, sink), mix(from.cells[i + 2]!, GROUND, sink)], i)
       } else {
-        const rise = easeOut((t - start) / RISE_MS)
-        out.set([to.cells[i]!, mix(GROUND, to.cells[i + 1]!, rise), mix(GROUND, to.cells[i + 2]!, rise)], i)
+        const p = (t - start) / RISE_MS
+        out.set([to.cells[i]!, lit(to.cells[i + 1]!, p), mix(GROUND, to.cells[i + 2]!, easeOut(p))], i)
       }
     }
   }

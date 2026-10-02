@@ -41,8 +41,9 @@ export type ScreenInput = {
   prompt: string | null
   // the last answer, dimmed under a new prompt that has no reply yet
   dim: boolean
-  // the lamp's level now, 0 to 1
+  // the lamp's level now, 0 to 1, and whether the terminal paints true colour
   lamp: number
+  deep: boolean
   // what the session waits on the person for
   waiting: 'plan' | 'question' | null
 }
@@ -201,7 +202,12 @@ export function stateOf(s: Pick<ScreenInput, 'view' | 'waiting' | 'working' | 't
 // section in view, or which earlier turn this is; blank when none applies.
 // It belongs to the page, so it settles and dims with it.
 function headRow(s: ScreenInput, surface: Surface, lines: readonly Line[], scroll: number, col: Column): Span[] {
+  // what waits on you reads from the left; where you are, from the right
   const at = (text: string, style: Style): Span[] => [{ text: clip(text, col.measure), style }]
+  const where = (text: string): Span[] => {
+    const t = clip(text, col.measure)
+    return [{ text: ' '.repeat(col.measure - cells(t)) }, { text: t, style: { color: INK.quiet, italic: true } }]
+  }
   if (s.view.help) return []
   if (surface.label === 'question' && s.waiting === 'question') return at('Waiting for your answer', { color: INK.lamp })
   if (surface.label === 'plan' && s.turn.planWaiting && s.waiting === 'plan') return at('Waiting for your approval', { color: INK.lamp })
@@ -210,9 +216,9 @@ function headRow(s: ScreenInput, surface: Surface, lines: readonly Line[], scrol
   const top = lines[scroll]
   if (scroll > 0 && !(top?.kind === 'text' && top.head !== undefined)) {
     const above = lines.slice(0, scroll).findLast(l => l.kind === 'text' && l.head !== undefined)
-    if (above?.kind === 'text' && above.head) return at(oneline(above.head), { color: INK.quiet })
+    if (above?.kind === 'text' && above.head) return where(oneline(above.head))
   }
-  if (s.historical) return at(`Turn ${s.cursor + 1} of ${s.turnCount}`, { color: INK.quiet })
+  if (s.historical) return where(`Turn ${s.cursor + 1} of ${s.turnCount}`)
   return []
 }
 
@@ -382,7 +388,7 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
 
   const tree = (
     <Box flexDirection="column" backgroundColor={INK.ground}>
-      <Raster key="lamp" columns={W} rows={1} cells={encode(paintLamp(W, col, s.lamp))} />
+      <Raster key="lamp" columns={W} rows={1} cells={encode(paintLamp(W, col, s.lamp, s.deep))} />
       <Box flexDirection="row">
         <Box flexDirection="column" width={bodyW}>
           {painted ? <Raster key="page" columns={bodyW} rows={bodyH + 1} cells={encode(painted)} /> : [row(head, col.left), ...textBody()]}

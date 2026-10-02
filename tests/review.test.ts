@@ -48,7 +48,8 @@ function fakePanes(on: On): void {
 
 // the lamp and the settle run on the clock and paint by blits; a test holds
 // the clock and keeps every blit
-function light(on: On) {
+function light(on: On, env: Record<string, string> = { COLORTERM: 'truecolor' }) {
+  mock.env(on, env)
   const clock = mock.clock(on, { now: 1_000_000 })
   const blits: { key: string; cells: string }[] = []
   on('ui.blit', (_$, e) => {
@@ -312,5 +313,22 @@ test('while a new prompt runs, the last answer stays on the page, dimmed, and th
   const lamp = blits.filter(b => b.key === 'lamp')
   expect(lamp.length).toBeGreaterThan(3)
   expect(new Set(lamp.map(b => b.cells)).size).toBeGreaterThan(1) // the light moves
+  await ui.unmount()
+})
+
+test('in a 256-colour terminal the lamp keeps palette colours and breathes by its weight', async ($, on) => {
+  fakePanes(on)
+  const { clock, blits } = light(on, { COLORTERM: 'truecolor', TMUX: '/tmp/tmux-1000/default,1,0' })
+  on('session.messages', () => ({ value: [prompt('first ask'), reply('The first answer.'), prompt('second ask')] }))
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  await $.command.run(TOGGLE)
+  await $.turn.start({ text: 'second ask', turnId: 'main' })
+  const ui = await mountTerminal($)
+
+  await clock.advance(2000)
+  const words = (cells: string) => new Uint32Array(Uint8Array.from(atob(cells), c => c.charCodeAt(0)).buffer)
+  const lit = blits.filter(b => b.key === 'lamp').map(b => words(b.cells).slice(12, 15)) // a cell inside the column
+  expect(new Set(lit.map(w => w[0])).size).toBeGreaterThan(1) // the glyph, so the weight, changes
+  expect(lit.every(w => w[1] === 0x875f00 || w[2] === 0x875f00)).toBe(true) // one palette brown throughout
   await ui.unmount()
 })

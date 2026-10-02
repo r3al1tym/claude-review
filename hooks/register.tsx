@@ -169,7 +169,16 @@ const hotkey = (k: string): string => `key-${k}`
 type Timer = { cancel: () => void }
 
 let lamp: Lamp | null = null
-let lampAt: { columns: number; column: Column } | null = null
+let lampAt: { columns: number; column: Column; deep: boolean } | null = null
+
+// Claude Code paints 256 colours under tmux or without COLORTERM=truecolor;
+// read once a load, a guess the lamp needs only for how it breathes.
+let deep: boolean | null = null
+async function trueColour($: EngineInterface): Promise<boolean> {
+  const colorterm = (await $.env.get('COLORTERM').catch(() => undefined)) ?? ''
+  const tmux = (await $.env.get('TMUX').catch(() => undefined)) ?? ''
+  return /^(truecolor|24bit)$/i.test(colorterm) && tmux === ''
+}
 let lampTimer: Timer | null = null
 
 function stopLamp(): void {
@@ -180,7 +189,7 @@ function stopLamp(): void {
 async function lampTick($: EngineInterface): Promise<void> {
   const t = await $.clock.now()
   if (!lamp || !lampAt) return stopLamp()
-  const cells = encode(paintLamp(lampAt.columns, lampAt.column, lampLevel(lamp, t)))
+  const cells = encode(paintLamp(lampAt.columns, lampAt.column, lampLevel(lamp, t), lampAt.deep))
   const res = await $.ui.blit({ requestId: PANE, key: 'lamp', cells })
   if (res.deny || !lampMoving(lamp, t)) stopLamp()
 }
@@ -307,7 +316,8 @@ export const register: Register = (on, options) => {
       const waiting = live?.ask ? 'question' : live?.plan && live.planWaiting ? 'plan' : null
       const lampState: LampState = waiting ? 'waiting' : busy ? 'working' : 'done'
       lamp = relight(lamp, lampState, now)
-      lampAt = { columns: e.props.bodyColumns, column: columnOf(e.props.bodyColumns) }
+      deep ??= await trueColour($)
+      lampAt = { columns: e.props.bodyColumns, column: columnOf(e.props.bodyColumns), deep }
 
       // the reply as the snapshot has it, so the settle starts on the draw that
       // first shows it; a key that moves the view changes no reply and is instant
@@ -344,6 +354,7 @@ export const register: Register = (on, options) => {
         prompt,
         dim,
         lamp: lampLevel(lamp, now),
+        deep,
         waiting,
       }, paint)
       laid = drawn.laid

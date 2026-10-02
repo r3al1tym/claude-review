@@ -5,7 +5,7 @@
 
 > **Faster than HTML. Calmer than the terminal.**
 
-A reading pane docked inside [Claude Code](https://claude.com/claude-code), beside the conversation. It shows the session's **latest reply**, rendered for reading in a padded column, and follows the live turn as Claude writes. Its plan, the question Claude is waiting on, and the task list are one key away.
+A reading pane docked inside [Claude Code](https://claude.com/claude-code), beside the conversation. It shows the session's **latest reply**, set for reading in a centred column, and follows the live turn as Claude writes. One line of warm light over the column, the lamp, tells you from the corner of your eye whether Claude is working or waiting on you. Its plan, the question Claude is waiting on, and the task list are one key away.
 
 ![Claude Code with the review pane docked on the right: the transcript on the left, the latest reply rendered in a calm reading column on the right](docs/pane.png)
 
@@ -44,7 +44,9 @@ The pane follows the live turn. Give it the keyboard with ctrl+x then Tab (until
 | `m` | the guide: every key, plus the session's diagnostics |
 | `q` | close the pane |
 
-A plan waiting for your approval and a pending question lead while Claude waits on them. While the view is frozen or on an earlier turn, `new reply` lights up in the key row when a reply lands on the live turn.
+The lamp is the session's state. While Claude works it is turned down to an ember and breathes slowly; when the turn is done it is up and steady; when a plan or a question waits on you it burns full, and the plan or question leads the page. A new reply settles in: the old page sinks and the new one rises line by line. While a new prompt runs, the last answer stays on the page, dimmed, under your prompt.
+
+A reply longer than the pane gets a fore-edge, a map of the whole reply down the right edge with the rows in view lit, and once you scroll into it the row under the lamp names the section you are in. While the view is frozen or on an earlier turn, `new reply` lights up in the key row when a reply lands on the live turn.
 
 To change the default, set *Open on start* in `/config` (on: the pane opens by itself on a wide terminal; off: only `/claude-review` opens it). `claude plugin disable review-pane@claude-review` turns the mod off everywhere, and `enable` turns it back on.
 
@@ -52,7 +54,7 @@ To change the default, set *Open on start* in `/config` (on: the pane opens by i
 
 The mod reads the conversation through the hooks API (`$.session.messages()`) and refreshes as rows land (`session.append`), so the pane updates while Claude writes, not only when a turn ends. It writes nothing to the session, makes no network calls and touches no files; `y` puts text on your clipboard through Claude Code.
 
-In the terminal it lays out its own rows (`hooks/markdown.ts`, `hooks/screen.tsx`): a monochrome markdown theme where emphasis comes from weight and only code keeps its syntax colours, a 4-cell gutter, and chrome pinned at the edges. A rule with the `claude review` label sits at the top, and a rule and one key row sit at the bottom. The rules carry ▲ and ▼ N% when there is more above or below. The desktop app and VS Code draw the same reply with their own Markdown and buttons.
+In the terminal it lays out its own rows (`hooks/markdown.ts`, `hooks/screen.tsx`): a monochrome markdown theme where emphasis comes from weight and a grey ramp and only code keeps its syntax colours, a column of at most 72 cells, the lamp on top and one key row at the bottom. The lamp, the fore-edge and the settle are `Raster` cells repainted by `$.ui.blit` on a timer (`hooks/paint.ts`, `hooks/motion.ts`); a Raster paints at 12-bit colour, so the whole palette is 12-bit and a painted page matches the Text one exactly. The desktop app and VS Code draw the same reply with their own Markdown and buttons.
 
 ## Limitations
 

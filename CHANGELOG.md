@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-10-01
+
+The pane becomes a page under a lamp: one line of warm light over the reply that tells you, from the corner of your eye, whether Claude is working or waiting on you, and a page that never jump-cuts.
+
+### Added
+- **The lamp.** A line of light along the top of the column. While Claude works it is turned down to an ember and breathes slowly; when the turn is done it is up and steady; when a plan or a question waits on you it burns full and thickens, and the question or plan leads under a *Waiting for your answer* or *Waiting for your approval* eyebrow.
+- **The settle.** A new reply never replaces the page in one frame: the old page sinks into the ground, then the new one rises line by line from the top, in about 0.7 s, painted cell by cell in true colour.
+- **The last answer stays.** While a new prompt runs and has no reply yet, the last answer stays on the page, dimmed, under your new prompt.
+- **The fore-edge.** A reply longer than the pane gets a map down its right edge: prose as a thin rule, code as a block, headings as bright ticks, and a bar of lamp light beside the rows in view.
+- **The running head.** Scrolled into a long reply, the row under the lamp names the section you are in.
+
+### Changed
+- The column is centred and at most 72 cells wide, on its own ground; both hairline rules and the `claude review` wordmark are gone, and an earlier turn names itself (*Turn 2 of 5*) in the head row.
+- Every colour is a 12-bit value shared by the Text and the painted cells, so a settled frame lands on exactly what Text draws. Running text is a set grey, headings the brightest.
+- A table whose rows wrap sets its rows a blank line apart.
+
+### Fixed
+- A blank line inside a code block keeps its row.
+- A turn's reply reaches the page before the turn stops counting as working, so the page settles straight from the dimmed answer into the new one.
+
 ## [1.0.0] — 2026-10-01
 
 claude-review is now a Claude Code mod. The pane docks inside Claude Code, beside the conversation, and the standalone Python CLI is retired (its last release is v0.5.3).
