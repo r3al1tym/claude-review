@@ -12,7 +12,15 @@ const SINK_MS = 160
 const RISE_MS = 380
 const STAGGER_SPAN_MS = 420
 const WARM = lampColour(0.9)
-const WARMTH = 0.5 // how far a line's ink leans to the lamp at its peak
+const WARMTH = 0.45 // how far a line's ink leans to the lamp at its peak
+
+// The ink in the lamp's hue at its own brightness: a tint that warms a dim
+// line as much as a bright one and never lights it brighter than it is.
+function tint(ink: number): number {
+  const top = Math.max(WARM >> 16, (WARM >> 8) & 0xff, WARM & 0xff)
+  const ch = (shift: number): number => Math.round((((ink >> shift) & 0xff) * ((WARM >> shift) & 0xff)) / top) << shift
+  return ch(16) | ch(8) | ch(0)
+}
 
 const stagger = (rows: number): number => Math.min(18, STAGGER_SPAN_MS / Math.max(1, rows))
 export const settleMs = (rows: number): number => SINK_MS + stagger(rows) * Math.max(0, rows - 1) + RISE_MS
@@ -23,7 +31,7 @@ const easeOut = (p: number): number => 1 - (1 - p) ** 3
 // A line's ink while it rises: out of the ground into the lamp's warmth by
 // the first third, then cooling to its own colour.
 function lit(ink: number, p: number): number {
-  const warm = mix(ink, WARM, WARMTH)
+  const warm = mix(ink, tint(ink), WARMTH)
   return p < 1 / 3 ? mix(GROUND, warm, easeOut(p * 3)) : mix(warm, ink, easeOut((p - 1 / 3) * 1.5))
 }
 
