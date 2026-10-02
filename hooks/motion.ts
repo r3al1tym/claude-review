@@ -42,7 +42,8 @@ function lit(ink: number, p: number): number {
 
 // Rows rise by unit: a code block's rows as one panel, every other row on
 // its own. Only units that show something take a place in the stagger, so
-// blank rows (the air above a question, between paragraphs) cost no time.
+// blank rows (the air above a question, between paragraphs) cost no time and
+// rise with the line above them, carrying their stretch of the fore-edge.
 function riseStarts(to: Page): number[] {
   const rowLen = to.columns * 3
   const units = to.units ?? Array.from({ length: to.rows }, (_, y) => y)
@@ -53,7 +54,8 @@ function riseStarts(to: Page): number[] {
   const place = new Map<number, number>()
   for (let y = 0; y < to.rows; y++) if (!place.has(units[y]!) && shows(y)) place.set(units[y]!, place.size)
   const step = Math.min(18, STAGGER_SPAN_MS / Math.max(1, place.size))
-  return units.map(u => SINK_MS + step * (place.get(u) ?? 0))
+  let above = SINK_MS
+  return units.map(u => (above = place.has(u) ? SINK_MS + step * place.get(u)! : above))
 }
 
 export function settleFrame(from: Page, to: Page, t: number): Uint32Array {
