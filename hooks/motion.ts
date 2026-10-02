@@ -14,6 +14,7 @@ const RISE_MS = 560
 const STAGGER_SPAN_MS = 420
 const WARM = lampColour(0.9)
 const WARMTH = 0.45 // how far a line's ink leans to the lamp at its peak
+const BODY = 0xcc // the running text's grey; brighter is emphasis
 
 // The ink in the lamp's hue at its own brightness: a tint that warms a dim
 // line as much as a bright one and never lights it brighter than it is.
@@ -25,7 +26,7 @@ function tint(ink: number): number {
 
 // What waits on you stays in the lamp's light until you answer it: its ink
 // held partway to the lamp's hue, where a settle would have cooled it.
-const HELD = 0.3
+const HELD = 0.4
 export const held = (ink: number): number => mix(ink, tint(ink), HELD)
 
 // the longest a settle runs, whatever the page holds
@@ -114,7 +115,11 @@ export function settleFrame(from: Page, to: Page, t: number, deep = true): Uint3
         out.set([from.cells[i]!, sunk(from.cells[i + 1]!, sink), sunk(from.cells[i + 2]!, sink)], i)
       } else {
         const p = (t - start) / RISE_MS
-        const d = Math.min(1, Math.abs((i - at) / 3 + 0.5 - centre) / half)
+        // emphasis (bold, and inks brighter than the body) burns as the centre
+        // does, so the light comes to rest on what the agent stressed
+        const ink = to.cells[i + 1]!
+        const stressed = to.stress?.[i / 3] === 1 || Math.max(ink >> 16, (ink >> 8) & 0xff, ink & 0xff) > BODY
+        const d = stressed ? 0 : Math.min(1, Math.abs((i - at) / 3 + 0.5 - centre) / half)
         const bg = to.cells[i + 2]!
         out.set([to.cells[i]!, lit(to.cells[i + 1]!, p, deep ? WARMTH : 0, d), mix(toward(bg), bg, easeOut(p))], i)
       }

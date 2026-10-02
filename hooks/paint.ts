@@ -46,8 +46,10 @@ export function mix(a: number, b: number, t: number): number {
 // row the first row of the form it belongs to (a code block's rows share one),
 // so the form moves as a whole; `edge` counts the columns at the right that
 // hold the fore-edge, which rise with their rows and take no time of their own;
-// `column` is the text column, whose centre sits under the lamp's.
-export type Page = { columns: number; rows: number; cells: Uint32Array; units?: number[]; edge?: number; column?: Column }
+// `column` is the text column, whose centre sits under the lamp's; `stress`
+// marks the cells the reply emphasises (bold, headings), which a Raster
+// cannot draw bold, so a settle can light them last.
+export type Page = { columns: number; rows: number; cells: Uint32Array; units?: number[]; edge?: number; column?: Column; stress?: Uint8Array }
 
 export function blankPage(columns: number, rows: number): Page {
   const cells = new Uint32Array(columns * rows * 3)
@@ -85,7 +87,10 @@ function put(page: Page, y: number, x: number, end: number, spans: readonly Span
       const glyph = w === 1 && cp >= 0x20 && cp <= 0xffff && !(cp >= 0x7f && cp < 0xa0) ? cp : 0x20
       for (let k = 0; k < w; k++) {
         if (x >= end) return x
-        if (x >= 0) page.cells.set([k === 0 ? glyph : 0x20, fg, back], (y * page.columns + x) * 3)
+        if (x >= 0) {
+          page.cells.set([k === 0 ? glyph : 0x20, fg, back], (y * page.columns + x) * 3)
+          if (sp.style?.bold && page.stress) page.stress[y * page.columns + x] = 1
+        }
         x += 1
       }
     }
@@ -100,7 +105,7 @@ export type Column = { left: number; measure: number }
 // left edge, code rows as a panel the measure wide (one cell of padding a
 // side). `inks` dims a row toward the ground, 1 being full ink.
 export function paintPage(window: readonly Line[], col: Column, columns: number, rows: number, inks: readonly number[]): Page {
-  const page: Page = { ...blankPage(columns, rows), units: Array.from({ length: rows }, (_, y) => y), column: col }
+  const page: Page = { ...blankPage(columns, rows), units: Array.from({ length: rows }, (_, y) => y), column: col, stress: new Uint8Array(columns * rows) }
   window.slice(0, rows).forEach((l, y) => {
     const prev = window[y - 1]
     if (l.kind === 'code' && prev?.kind === 'code' && prev.block === l.block) page.units![y] = page.units![y - 1]!
