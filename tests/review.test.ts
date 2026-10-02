@@ -83,7 +83,10 @@ test('the terminal pane draws the page: the lamp, the reply in a set column, the
   await $.turn.complete(turnEnd)
 
   const ui = await mountTerminal($)
-  expect(await ui.find({ type: 'Raster', key: 'lamp' })).toBeDefined()
+  // the lamp at rest is Text at full colour depth, its light running smooth from the centre
+  const lamp = await ui.find({ type: 'Text', text: /▆{72}/ })
+  const backs = (lamp?.children ?? []).flatMap(c => (typeof c === 'object' && c !== null && 'props' in c ? [String((c as { props: Record<string, unknown> }).props.backgroundColor)] : []))
+  expect(backs.some(b => [1, 3, 5].some(i => Number.parseInt(b.slice(i, i + 2), 16) % 17 !== 0))).toBe(true)
   const answer = await ui.find({ type: 'Text', text: 'Second answer, the latest.' })
   expect(answer?.text.startsWith('    Second answer')).toBe(true) // the 4-cell gutter
   expect(await ui.find({ type: 'Text', text: /^done/ })).toBeDefined()
@@ -103,7 +106,7 @@ test('the tree is the body rows plus one: lamp, head and body, air, key row', as
   type Node = { type: string; props?: Record<string, unknown>; children: Node[] }
   const drawn = await ui.drawn() as Node
   const rows = drawn.children[0]!.children
-  expect(rows.map(r => r.type)).toEqual(['Raster', 'Box', 'Text', 'Text'])
+  expect(rows.map(r => r.type)).toEqual(['Text', 'Box', 'Text', 'Text']) // the lamp at rest is a Text row
   // the head row and 16 body rows beside the fore-edge, then the hidden spacer row: 20 + 1
   const [column, edge] = rows[1]!.children
   expect(column!.children.length).toBe(17)
@@ -362,6 +365,22 @@ test('while a new prompt runs, the last answer stays on the page, dimmed, and th
   await ui.unmount()
 })
 
+test('a long new prompt wraps to three rows over the dimmed answer, the last cut with an ellipsis', async ($, on) => {
+  fakePanes(on)
+  light(on)
+  const ask = Array.from({ length: 40 }, (_, i) => `word${i}`).join(' ')
+  on('session.messages', () => ({ value: [prompt('first ask'), reply('The first answer.'), prompt(ask)] }))
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  await $.command.run(TOGGLE)
+
+  await $.turn.start({ text: ask, turnId: 'main' })
+  const ui = await mountTerminal($)
+  expect(await ui.find({ type: 'Text', text: /^ {4}› word0 word1/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^ {6}word\d+ word\d+/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /…$/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('in a 256-colour terminal the lamp keeps palette colours and breathes by its weight', async ($, on) => {
   fakePanes(on)
   const { clock, blits } = light(on, { COLORTERM: 'truecolor', TMUX: '/tmp/tmux-1000/default,1,0' })
@@ -387,9 +406,11 @@ test('the lamp gathers into an ember while Claude works and opens across the col
   on('turn.complete', () => ({ text: '' }))
   await $.command.run(TOGGLE)
   const ui = await mountTerminal($)
+  // moving, the lamp is a Raster; at rest, a Text row
   const lampRow = async () => {
-    const lamp = await ui.find({ type: 'Raster', key: 'lamp' }) as unknown as { props: { columns: number; cells: string } }
-    return rowText(lamp.props.cells, lamp.props.columns, 0)
+    const raster = await ui.find({ type: 'Raster', key: 'lamp' }) as unknown as { props: { columns: number; cells: string } } | undefined
+    if (raster) return rowText(raster.props.cells, raster.props.columns, 0)
+    return (await ui.find({ type: 'Text', text: /[▀▁-▆▔]{10}/ }))?.text ?? ''
   }
   // 80 columns: the column is cells 4 to 75, the ember the middle ten
   expect((await lampRow()).slice(4, 76).trim().length).toBe(72)

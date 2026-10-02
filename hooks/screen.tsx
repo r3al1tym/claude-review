@@ -10,7 +10,7 @@ import type { ElementTable } from 'claude-code'
 import type { ReviewTask, ReviewTurn, ReviewView } from '../types'
 import { INK, layout } from './markdown'
 import type { Line } from './markdown'
-import { GROUND, encode, exact, hex, markOf, mix, paintEdge, paintLamp, paintPage, rgb } from './paint'
+import { GROUND, encode, exact, hex, lampSpans, markOf, mix, paintEdge, paintLamp, paintPage, rgb } from './paint'
 import { held } from './motion'
 import type { Light } from './motion'
 import type { Column, Page } from './paint'
@@ -43,8 +43,9 @@ export type ScreenInput = {
   prompt: string | null
   // the last answer, dimmed under a new prompt that has no reply yet
   dim: boolean
-  // the lamp's light now, and whether the terminal paints true colour
+  // the lamp's light now, whether it holds still, and whether the terminal paints true colour
   lamp: Light
+  still: boolean
   deep: boolean
   // what the session waits on the person for
   waiting: 'plan' | 'question' | null
@@ -212,6 +213,16 @@ function waitingFor(s: ScreenInput, surface: Surface): string | null {
   return null
 }
 
+// A prompt as the page leads with it: `› ` and its words, wrapped to at most
+// three rows, the last cut with an ellipsis when it runs on.
+function promptRows(prompt: string, width: number, color: string): Span[][] {
+  const style = { color }
+  const rows = wrap([{ text: oneline(prompt), style }], width, [{ text: '› ', style }], [{ text: '  ' }])
+  if (rows.length <= 3) return rows
+  const text = (r: readonly Span[]): string => r.map(sp => sp.text).join('')
+  return [...rows.slice(0, 2), [{ text: clip(`${text(rows[2]!)} ${text(rows[3]!).trimStart()}`, width), style }]]
+}
+
 function headRow(s: ScreenInput, surface: Surface, lines: readonly Line[], scroll: number, col: Column, lifted: boolean): Span[] {
   // what waits on you reads from the left; where you are, from the right
   const at = (text: string, style: Style): Span[] => [{ text: clip(text, col.measure), style }]
@@ -222,7 +233,7 @@ function headRow(s: ScreenInput, surface: Surface, lines: readonly Line[], scrol
   if (s.view.help) return []
   const ask = waitingFor(s, surface)
   if (ask && !lifted) return at(ask, { color: INK.bright, italic: true })
-  if (s.dim && s.prompt) return at(`› ${oneline(s.prompt)}`, { color: INK.bright })
+  if (s.dim && s.prompt) return promptRows(s.prompt, col.measure, INK.bright)[0]!
   // a section's own heading at the top of the view needs no running head
   const top = lines[scroll]
   if (scroll > 0 && !(top?.kind === 'text' && top.head !== undefined)) {
@@ -306,9 +317,14 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
   // prompt, so a reply is never read out of context
   const content = s.view.help ? helpLines(s, col.measure, state) : surface.lines(col.measure)
   // the new prompt rides the head row, and the dimmed answer is named above itself
+  // (the new prompt's first row is the head row; the rest of it leads the page)
   const lead = s.view.help ? []
-    : s.dim ? [blank(), textLine([{ text: 'Previous answer', style: { color: INK.quiet, italic: true } }])]
-    : s.prompt ? [textLine([{ text: clip(`› ${oneline(s.prompt)}`, col.measure), style: { color: INK.question } }]), blank()]
+    : s.dim ? [
+        ...(s.prompt ? promptRows(s.prompt, col.measure, INK.bright).slice(1).map(textLine) : []),
+        blank(),
+        textLine([{ text: 'Previous answer', style: { color: INK.quiet, italic: true } }]),
+      ]
+    : s.prompt ? [...promptRows(s.prompt, col.measure, INK.question).map(textLine), blank()]
     : []
   // what waits on you sits a third of the way down, where the eye rests,
   // when it is short enough to leave the room
@@ -404,7 +420,10 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
 
   const tree = (
     <Box flexDirection="column" backgroundColor={INK.ground}>
-      <Raster key="lamp" columns={W} rows={1} cells={encode(paintLamp(W, col, s.lamp, s.deep))} />
+      {s.still
+        // still, the lamp is Text at full colour depth; moving, a Raster the timer repaints
+        ? row(lampSpans(paintLamp(W, col, s.lamp, s.deep)), 0)
+        : <Raster key="lamp" columns={W} rows={1} cells={encode(paintLamp(W, col, s.lamp, s.deep))} />}
       {painted
         // a settle paints the body and its fore-edge as one grid, so the edge rises with its rows
         ? <Raster key="page" columns={W} rows={bodyH + 1} cells={encode(painted)} />

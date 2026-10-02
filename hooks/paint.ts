@@ -150,17 +150,30 @@ export function paintLamp(columns: number, col: Column, light: Light, deep = tru
   return page.cells
 }
 
+// The lamp's cells as Text spans at full colour depth. A Raster paints at 12
+// bits, which shows as steps along the filament; a lamp that holds still is
+// drawn as Text instead, so its light runs smooth from the centre to the ends.
+export function lampSpans(cells: Uint32Array): Span[] {
+  const out: Span[] = []
+  for (let i = 0; i < cells.length; i += 3) {
+    const style = { color: exact(cells[i + 1]!), bg: exact(cells[i + 2]!) }
+    const last = out[out.length - 1]
+    const ch = String.fromCodePoint(cells[i]!)
+    if (last && last.style?.color === style.color && last.style.bg === style.bg) last.text += ch
+    else out.push({ text: ch, style })
+  }
+  return out
+}
+
 // What one row of the reply is, for the fore-edge.
 export type Mark = 'blank' | 'text' | 'code' | 'head'
 
 export const markOf = (l: Line): Mark =>
   l.kind === 'code' ? 'code' : l.head !== undefined ? 'head' : l.spans.some(s => s.text.trim() !== '') ? 'text' : 'blank'
 
-// The fore-edge, read like a scrollbar's track: one column of thin bars,
-// a cell in from the pane's edge. The rows in view are a grey bar; a section's
-// start is a brighter notch on it, or a dim one where the bar is not. Prose
-// and code leave the track bare, so each mark means one thing, and all of it
-// is grey: the lamp stays the page's only light.
+// The fore-edge, a scrollbar a cell in from the pane's edge: a thin grey bar
+// beside the rows in view, notched brighter where a section starts within
+// them. Grey throughout, so the lamp stays the page's only light.
 export function paintEdge(marks: readonly Mark[], rows: number, scroll: number, shown: number): Uint32Array {
   const page = blankPage(2, rows)
   const n = Math.max(1, marks.length)
@@ -174,8 +187,7 @@ export function paintEdge(marks: readonly Mark[], rows: number, scroll: number, 
     for (let i = at(y); i < Math.max(at(y) + 1, at(y + 1)); i++) {
       if (marks[i] === 'head' && marks[i - 1] !== 'head') starts = true
     }
-    const ink = starts ? (lit ? 0xaaaaaa : 0x555555) : lit ? 0x666666 : null
-    if (ink !== null) page.cells.set([0x258e, ink, GROUND], y * 6 + 3)
+    if (lit) page.cells.set([0x258e, starts ? 0xaaaaaa : 0x666666, GROUND], y * 6 + 3)
   }
   return page.cells
 }

@@ -191,7 +191,11 @@ async function lampTick($: EngineInterface): Promise<void> {
   if (!lamp || !lampAt) return stopLamp()
   const cells = encode(paintLamp(lampAt.columns, lampAt.column, lampLight(lamp, t), lampAt.deep))
   const res = await $.ui.blit({ requestId: PANE, key: 'lamp', cells })
-  if (res.deny || !lampMoving(lamp, t)) stopLamp()
+  if (res.deny) return stopLamp()
+  if (!lampMoving(lamp, t)) {
+    stopLamp()
+    $.ui.invalidate('ui.render') // the lamp at rest draws as Text, at full colour depth
+  }
 }
 
 function runLamp($: EngineInterface): void {
@@ -359,6 +363,7 @@ export const register: Register = (on, options) => {
         prompt,
         dim,
         lamp: lampLight(lamp, now),
+        still: !lampMoving(lamp, now),
         deep,
         waiting,
       }, paint)
