@@ -2,7 +2,11 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, UiPressArgument } from 'claude-code'
 
 import type { ReviewSnapshot, ReviewTurn, ReviewView } from '../types'
-import { screen, surfacesFor } from './screen'
+import { lampLevel, lampMoving, relight, settleFrame, settleMs } from './motion'
+import type { Lamp, LampState } from './motion'
+import { encode, paintLamp } from './paint'
+import type { Column, Page } from './paint'
+import { columnOf, screen, surfacesFor } from './screen'
 import type { Facts, Laid } from './screen'
 import { buildSnapshot, hasReply, replySig } from './transcript'
 
@@ -17,7 +21,10 @@ const working = atom({ plugin: 'review-pane', key: 'working' } as const, [])
 
 // The last layout drawn, so a scroll or a key clamps to the content it moves
 // over. A cache only: a reload starts it over and the next draw refills it.
-let laid: Laid = { maxScroll: Number.MAX_SAFE_INTEGER, bodyRows: 10, surfaces: [], active: 0 }
+let laid: Laid = {
+  maxScroll: Number.MAX_SAFE_INTEGER, bodyRows: 10, surfaces: [], active: 0,
+  column: { left: 0, measure: 0 }, page: { columns: 0, rows: 0, cells: new Uint32Array(0) },
+}
 
 const latest = (snap: ReviewSnapshot): number => Math.max(0, snap.turns.length - 1)
 
@@ -28,6 +35,20 @@ function onScreen(snap: ReviewSnapshot, v: ReviewView): { turn: ReviewTurn; curs
   const cursor = v.index !== null && v.index >= 0 && v.index <= last ? v.index : last
   const turn = (v.frozen && v.held) || snap.turns[cursor] || EMPTY_TURN
   return { turn, cursor, historical: cursor >= 0 && cursor < last }
+}
+
+const isBlank = (t: ReviewTurn): boolean => !t.text && !t.plan && !t.ask
+
+// What the page shows. A new turn that has nothing to show yet keeps the last
+// answer on the page, dimmed under the new prompt, so the page never empties
+// while Claude works; an earlier turn leads with the prompt it answered.
+function display(snap: ReviewSnapshot, v: ReviewView, busy: boolean) {
+  const at = onScreen(snap, v)
+  const prev = snap.turns[at.cursor - 1]
+  if (busy && !at.historical && !v.frozen && isBlank(at.turn) && prev && !isBlank(prev)) {
+    return { ...at, turn: prev, dim: true, prompt: at.turn.question }
+  }
+  return { ...at, dim: false, prompt: at.historical ? at.turn.question : null }
 }
 
 const isFollowing = (snap: ReviewSnapshot, v: ReviewView): boolean =>
@@ -63,6 +84,7 @@ async function isOpen($: EngineInterface): Promise<boolean> {
 }
 
 async function open($: EngineInterface): Promise<boolean> {
+  drawnPage = null // a pane that opens is complete on arrival; nothing settles
   await refresh($)
   return (await $.ui.open({ id: PANE, title: 'Review' })).isPlaced
 }
@@ -140,6 +162,59 @@ async function pressKey($: EngineInterface, k: string, press: UiPressArgument): 
 }
 const hotkey = (k: string): string => `key-${k}`
 
+// ---------------------------------------------------------------- light
+
+// The lamp and the settle move by blits between draws: a timer repaints their
+// Rasters at frame rate and stops when the motion ends or the pane is gone.
+type Timer = { cancel: () => void }
+
+let lamp: Lamp | null = null
+let lampAt: { columns: number; column: Column } | null = null
+let lampTimer: Timer | null = null
+
+function stopLamp(): void {
+  lampTimer?.cancel()
+  lampTimer = null
+}
+
+async function lampTick($: EngineInterface): Promise<void> {
+  const t = await $.clock.now()
+  if (!lamp || !lampAt) return stopLamp()
+  const cells = encode(paintLamp(lampAt.columns, lampAt.column, lampLevel(lamp, t)))
+  const res = await $.ui.blit({ requestId: PANE, key: 'lamp', cells })
+  if (res.deny || !lampMoving(lamp, t)) stopLamp()
+}
+
+function runLamp($: EngineInterface): void {
+  if (!lampTimer) lampTimer = $.clock.every(50, () => void lampTick($))
+}
+
+// The body last drawn, as cells, and the reply it showed: a new reply settles
+// in from it. A settle runs `from` to `to` over settleMs.
+let drawnPage: { page: Page; seen: string } | null = null
+let settle: { from: Page; to: Page; start: number } | null = null
+let settleTimer: Timer | null = null
+
+function endSettle($: EngineInterface): void {
+  settle = null
+  settleTimer?.cancel()
+  settleTimer = null
+  $.ui.invalidate('ui.render') // the settled page draws as Text again
+}
+
+async function settleTick($: EngineInterface): Promise<void> {
+  const t = await $.clock.now()
+  if (!settle || t - settle.start >= settleMs(settle.to.rows)) return endSettle($)
+  const cells = encode(settleFrame(settle.from, settle.to, t - settle.start))
+  if ((await $.ui.blit({ requestId: PANE, key: 'page', cells })).deny) endSettle($)
+}
+
+function runSettle($: EngineInterface): void {
+  if (!settleTimer) settleTimer = $.clock.every(16, () => void settleTick($))
+}
+
+const sameSize = (a: Page, b: Page): boolean => a.columns === b.columns && a.rows === b.rows
+
 // ---------------------------------------------------------------- hooks
 
 export const register: Register = (on, options) => {
@@ -209,7 +284,7 @@ export const register: Register = (on, options) => {
     const snap = await read($, snapshot)
     const v = await read($, view)
     const busy = (await read($, working)).length > 0
-    const { turn, cursor, historical } = onScreen(snap, v)
+    const { turn, cursor, historical, dim, prompt } = display(snap, v, busy)
     const isLatest = !historical
     const behind = !isFollowing(snap, v) && hasReply(snap) && replySig(snap) !== v.seen
 
@@ -223,6 +298,29 @@ export const register: Register = (on, options) => {
             project: (await $.session.cwd().catch(() => '?')).replace(/^\/home\/[^/]+/, '~'),
           }
         : null
+      // the lamp speaks for the live turn, whichever turn is on the page
+      const now = await $.clock.now()
+      const live = snap.turns[snap.turns.length - 1]
+      const waiting = live?.ask ? 'question' : live?.plan && live.planWaiting ? 'plan' : null
+      const lampState: LampState = waiting ? 'waiting' : busy ? 'working' : 'done'
+      lamp = relight(lamp, lampState, now)
+      lampAt = { columns: e.props.bodyColumns, column: columnOf(e.props.bodyColumns) }
+
+      const following = isFollowing(snap, v)
+      const paint = (page: Page): Uint32Array | null => {
+        const before = drawnPage
+        drawnPage = { page, seen: v.seen }
+        if (settle && sameSize(settle.to, page)) {
+          settle.to = page
+          return settleFrame(settle.from, page, now - settle.start)
+        }
+        settle = null
+        if (!before || before.seen === v.seen || !following || v.help || !sameSize(before.page, page)) return null
+        settle = { from: before.page, to: page, start: now }
+        runSettle($)
+        return settleFrame(before.page, page, 0)
+      }
+
       const drawn = screen(T, {
         columns: e.props.bodyColumns,
         rows: e.props.scroll.bodyRows,
@@ -237,8 +335,13 @@ export const register: Register = (on, options) => {
         turnCount: snap.turns.length,
         view: v,
         facts,
-      })
+        prompt,
+        dim,
+        lamp: lampLevel(lamp, now),
+        waiting,
+      }, paint)
       laid = drawn.laid
+      if (lampMoving(lamp, now)) runLamp($)
       const { Box, Button, Text } = T
 
       return (
@@ -257,7 +360,7 @@ export const register: Register = (on, options) => {
     const { Box, Button, Markdown, Text } = E
     const surfaces = surfacesFor(turn, isLatest ? snap.tasks : [], historical, busy)
     const active = Math.min(v.surface, surfaces.length - 1)
-    laid = { maxScroll: 0, bodyRows: 10, surfaces, active }
+    laid = { ...laid, maxScroll: 0, bodyRows: 10, surfaces, active }
     const shown = surfaces[active]!
     const body = shown.raw !== '' ? shown.raw : '_No response yet._'
     const position = snap.turns.length === 0 ? 'no turns yet'

@@ -28,13 +28,12 @@ const ZERO: readonly [number, number][] = [
 const within = (cp: number, ranges: readonly [number, number][]): boolean =>
   ranges.some(([lo, hi]) => cp >= lo && cp <= hi)
 
+// How many cells one code point takes: 0, 1 or 2.
+export const cellsOf = (cp: number): number => (within(cp, ZERO) ? 0 : within(cp, WIDE) ? 2 : 1)
+
 export function cells(s: string): number {
   let n = 0
-  for (const ch of s) {
-    const cp = ch.codePointAt(0) ?? 0
-    if (within(cp, ZERO)) continue
-    n += within(cp, WIDE) ? 2 : 1
-  }
+  for (const ch of s) n += cellsOf(ch.codePointAt(0) ?? 0)
   return n
 }
 

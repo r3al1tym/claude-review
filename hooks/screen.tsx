@@ -1,16 +1,23 @@
-// The terminal pane, laid out as the CLI's render_screen: no header, the
-// response owns the column. Chrome is three rows: a top rule carrying the
-// wordmark, a bottom rule carrying the overflow cue, and one key row with
-// the state on the left and the cues on the right. Every frame element is
-// greyscale; the one colour marks the state you set (frozen, new reply).
+// The terminal pane: a page under a lamp. The reply owns a centred column of
+// at most MEASURE cells. Above it the lamp, a line of tungsten light that is
+// the session's state, and a head row (an eyebrow or the running head); below
+// it one key row. A reply longer than the pane gets a fore-edge, a map of the
+// whole reply at the right with the stretch in view lit. Everything is grey
+// but the lamp, and the words that speak for it.
 
 import type { ElementTable } from 'claude-code'
 
 import type { ReviewTask, ReviewTurn, ReviewView } from '../types'
 import { INK, layout } from './markdown'
 import type { Line } from './markdown'
+import { encode, markOf, paintEdge, paintLamp, paintPage } from './paint'
+import type { Column, Page } from './paint'
 import { cells, clip, oneline, spanCells, wrap } from './text'
 import type { Span, Style } from './text'
+
+export const MEASURE = 72
+// how far a dimmed answer sinks toward the ground
+const DIM = 0.45
 
 export type Surface = { label: string; lines: (width: number) => Line[]; raw: string }
 
@@ -30,7 +37,17 @@ export type ScreenInput = {
   turnCount: number
   view: ReviewView
   facts: Facts | null
+  // the prompt to lead with: an earlier turn's, or a new one over the dimmed answer
+  prompt: string | null
+  // the last answer, dimmed under a new prompt that has no reply yet
+  dim: boolean
+  // the lamp's level now, 0 to 1
+  lamp: number
+  // what the session waits on the person for
+  waiting: 'plan' | 'question' | null
 }
+
+export type State = { word: string; style: Style }
 
 const textLine = (spans: Span[]): Line => ({ kind: 'text', spans })
 const blank = (): Line => textLine([])
@@ -116,7 +133,7 @@ function helpSection(title: string, rows: readonly HelpRow[], chips: boolean): S
   return out
 }
 
-function helpLines(s: ScreenInput, width: number, state: [string, string, Style]): Line[] {
+function helpLines(s: ScreenInput, width: number, state: State): Line[] {
   const wide = width >= HELP_TWO_COL_MIN
   const rule = textLine([{ text: '─'.repeat(Math.max(1, width)), style: { color: INK.rule } }])
   const out: Line[] = []
@@ -142,10 +159,9 @@ function helpLines(s: ScreenInput, width: number, state: [string, string, Style]
   }
 
   out.push(blank(), rule, blank())
-  const [dot, word, style] = state
   const value: Style = { color: INK.meta }
   const facts: [string, string, Style][] = [
-    ['state', `${dot} ${word}`, word === 'frozen' ? style : value],
+    ['state', state.word, state.style.color === INK.lamp ? state.style : value],
     ['session', s.facts?.session ?? '?', value],
     ['model', s.facts?.model ?? '?', value],
     ['project', s.facts?.project ?? '?', value],
@@ -163,38 +179,51 @@ function helpLines(s: ScreenInput, width: number, state: [string, string, Style]
 
 // ---------------------------------------------------------------- chrome
 
-// A hairline rule with text inset into it, left (the wordmark) and right (an
-// overflow cue), so labels sit exactly where the content edge is.
-function insetRule(width: number, gutter: number, left: string | null, right: string | null): Span[] {
-  const rule: Style = { color: INK.rule }
-  const spans: Span[] = [{ text: ' '.repeat(gutter) }, { text: '──', style: rule }]
-  let used = gutter + 2
-  const rt = right ? ` ${right} ` : null
-  if (left) {
-    const budget = width - used - gutter - 2 - (rt ? cells(rt) + 2 : 0)
-    const lt = clip(` ${left} `, Math.max(1, budget))
-    spans.push({ text: lt, style: { color: INK.badge, bg: INK.rule } })
-    used += cells(lt)
-  }
-  if (rt) {
-    spans.push({ text: '─'.repeat(Math.max(0, width - used - cells(rt) - 2 - gutter)), style: rule })
-    spans.push({ text: rt, style: { color: INK.meta } }, { text: '──', style: rule })
-  } else {
-    spans.push({ text: '─'.repeat(Math.max(0, width - used - gutter)), style: rule })
-  }
-  return spans
+// Where the column sits in a pane `columns` wide: centred in the gutters, at
+// most MEASURE cells, so a line stays a comfortable read on any dock.
+export function columnOf(columns: number): Column {
+  const gutter = columns >= 60 ? 4 : 2
+  const room = Math.max(8, columns - 2 * gutter)
+  const measure = Math.min(room, MEASURE)
+  return { left: gutter + Math.floor((room - measure) / 2), measure }
 }
 
-function keyRow(s: ScreenInput, gutter: number, surfaces: readonly Surface[], active: number, state: [string, string, Style]): Span[] {
+export function stateOf(s: Pick<ScreenInput, 'view' | 'waiting' | 'working' | 'turnCount'>): State {
+  const lamp: Style = { color: INK.lamp }
+  const quiet: Style = { color: INK.quiet }
+  if (s.view.frozen) return { word: 'frozen', style: lamp }
+  if (s.waiting) return { word: 'waiting', style: lamp }
+  if (s.working) return { word: 'working', style: quiet }
+  return { word: s.turnCount > 0 ? 'done' : 'idle', style: quiet }
+}
+
+// The row under the lamp: what waits on you, why the page is dim, the
+// section in view, or which earlier turn this is; blank when none applies.
+function headRow(s: ScreenInput, surface: Surface, lines: readonly Line[], scroll: number, col: Column): Span[] {
+  const at = (text: string, style: Style): Span[] => [{ text: ' '.repeat(col.left) }, { text: clip(text, col.measure), style }]
+  if (s.view.help) return []
+  if (surface.label === 'question' && s.waiting === 'question') return at('Waiting for your answer', { color: INK.lamp })
+  if (surface.label === 'plan' && s.turn.planWaiting && s.waiting === 'plan') return at('Waiting for your approval', { color: INK.lamp })
+  if (s.dim) return at('The last answer, until the new one lands', { color: INK.quiet, italic: true })
+  // a section's own heading at the top of the view needs no running head
+  const top = lines[scroll]
+  if (scroll > 0 && !(top?.kind === 'text' && top.head !== undefined)) {
+    const above = lines.slice(0, scroll).findLast(l => l.kind === 'text' && l.head !== undefined)
+    if (above?.kind === 'text' && above.head) return at(oneline(above.head), { color: INK.quiet })
+  }
+  if (s.historical) return at(`Turn ${s.cursor + 1} of ${s.turnCount}`, { color: INK.quiet })
+  return []
+}
+
+function keyRow(s: ScreenInput, col: Column, surfaces: readonly Surface[], active: number, state: State): Span[] {
   const meta: Style = { color: INK.meta }
-  const [dot, word, style] = state
   // the state word is padded so a change of state never shifts what follows
-  const left: Span[] = [{ text: ' '.repeat(gutter) }, { text: `${dot} ${word.padEnd(7)}`, style }]
-  if (s.behind) left.push({ text: '   ' }, { text: 'new reply', style: { color: INK.accent } })
+  const left: Span[] = [{ text: state.word.padEnd(7), style: state.style }]
+  if (s.behind) left.push({ text: '   ' }, { text: 'new reply', style: { color: INK.lamp } })
 
   const right: Span[] = (() => {
     if (s.view.help) return [{ text: '↑↓ scroll · m close', style: meta }]
-    if (s.view.flash) return [{ text: `✓ ${s.view.flash}`, style: { color: INK.accent } }]
+    if (s.view.flash) return [{ text: `✓ ${s.view.flash}`, style: { color: INK.lamp } }]
     if (!s.isFocused) return [{ text: 'ctrl+x ⇥ focus', style: meta }]
     const cues = [s.view.frozen ? 'f unfreeze' : 'f freeze', ...(s.turnCount > 1 ? ['h l turns'] : []), 'm more']
     return [{ text: cues.join(' · '), style: meta }]
@@ -214,11 +243,11 @@ function keyRow(s: ScreenInput, gutter: number, surfaces: readonly Surface[], ac
   let tab: Span[] = []
   for (const mode of ['full', 'active', 'none'] as const) {
     tab = tabs(mode)
-    if (spanCells(left) + spanCells(tab) + spanCells(right) + gutter <= s.columns) break
+    if (spanCells(left) + spanCells(tab) + spanCells(right) + 1 <= col.measure) break
   }
-  const pad = Math.max(1, s.columns - spanCells(left) - spanCells(tab) - spanCells(right) - gutter)
+  const pad = Math.max(1, col.measure - spanCells(left) - spanCells(tab) - spanCells(right))
 
-  return [...left, { text: ' '.repeat(pad) }, ...tab, ...right]
+  return [{ text: ' '.repeat(col.left) }, ...left, { text: ' '.repeat(pad) }, ...tab, ...right]
 }
 
 // ---------------------------------------------------------------- the tree
@@ -231,33 +260,45 @@ const isLink = (href: string): boolean => {
   }
 }
 
-export type Laid = { maxScroll: number; bodyRows: number; surfaces: Surface[]; active: number }
+export type Laid = {
+  maxScroll: number
+  bodyRows: number
+  surfaces: Surface[]
+  active: number
+  column: Column
+  // the body as cells, what a settle starts from
+  page: Page
+}
 
-export function screen(E: ElementTable<'terminal'>, s: ScreenInput): { tree: JSX.Element; laid: Laid } {
-  const { Box, Code, Link, Text } = E
+// `paint` may take over the body: given the page as cells, it returns the
+// cells to draw instead (a settle's frame), or null to draw Text.
+export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (page: Page) => Uint32Array | null): { tree: JSX.Element; laid: Laid } {
+  const { Box, Code, Link, Raster, Text } = E
   const W = s.columns
-  const gutter = W >= 60 ? 4 : 2
-  const inner = Math.max(8, W - 2 * gutter)
-  const bodyH = Math.max(1, s.rows - 3)
+  const col = columnOf(W)
+  const bodyW = Math.max(1, W - 2) // the last two columns hold the fore-edge
+  const bodyH = Math.max(1, s.rows - 4)
 
-  const state: [string, string, Style] = s.view.frozen
-    ? ['■', 'frozen', { color: INK.accent }]
-    : s.working ? ['●', 'working', { color: INK.meta }] : ['○', 'idle', { color: INK.meta }]
-
+  const state = stateOf(s)
   const surfaces = surfacesFor(s.turn, s.tasks, s.historical, s.working)
   const active = Math.min(s.view.surface, surfaces.length - 1)
+  const surface = surfaces[active]!
 
-  // vertical air and the gutter make the content its own column; an earlier
-  // turn leads with the prompt it answered, so it is never read out of context
-  const content = s.view.help ? helpLines(s, inner, state) : surfaces[active]!.lines(inner)
-  const lead = !s.view.help && s.historical && s.turn.question
-    ? [textLine([{ text: clip(`› ${oneline(s.turn.question)}`, inner), style: { color: INK.question } }]), blank()]
+  // an earlier turn, or a new prompt over the dimmed answer, leads with its
+  // prompt, so a reply is never read out of context
+  const content = s.view.help ? helpLines(s, col.measure, state) : surface.lines(col.measure)
+  const lead = !s.view.help && s.prompt
+    ? [textLine([{ text: clip(`› ${oneline(s.prompt)}`, col.measure), style: { color: s.dim ? INK.bright : INK.question } }]), blank()]
     : []
-  const lines = [blank(), ...lead, ...content, blank()]
+  const lines = [...lead, ...content, blank()]
 
   const maxScroll = Math.max(0, lines.length - bodyH)
   const scroll = Math.max(0, Math.min(s.view.scroll, maxScroll))
   const window = lines.slice(scroll, scroll + bodyH)
+
+  const inks = window.map((_, y) => (s.dim && scroll + y >= lead.length ? DIM : 1))
+  const page = paintPage(window, col, bodyW, bodyH, inks)
+  const painted = paint?.(page) ?? (s.dim ? page.cells : null)
 
   const styled = (sp: Span): JSX.Element => {
     const st = sp.style ?? {}
@@ -275,65 +316,74 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput): { tree: JSX
     <Text wrap="truncate-end">{' '.repeat(indent)}{spans.map(styled)}</Text>
   )
 
-  // consecutive rows of one code block draw as one panel, its lines one Code
-  const body: JSX.Element[] = []
-  let i = 0
-  for (; i < window.length;) {
-    const l = window[i]!
-    if (l.kind === 'text') {
-      body.push(row(l.spans, gutter))
-      i += 1
-      continue
-    }
-    const group: Extract<Line, { kind: 'code' }>[] = []
-    while (i < window.length) {
-      const g = window[i]!
-      if (g.kind !== 'code' || g.block !== l.block) break
-      group.push(g)
-      i += 1
-    }
-    const preW = spanCells(l.prefix)
-    const parts: JSX.Element[] = []
-    for (let k = 0; k < group.length;) {
-      if (group[k]!.pad) {
-        parts.push(<Text> </Text>)
-        k += 1
+  // the body as Text; consecutive rows of one code block draw as one panel
+  const textBody = (): JSX.Element[] => {
+    const body: JSX.Element[] = []
+    let i = 0
+    for (; i < window.length;) {
+      const l = window[i]!
+      if (l.kind === 'text') {
+        body.push(row(l.spans, col.left))
+        i += 1
         continue
       }
-      const run: string[] = []
-      while (k < group.length && !group[k]!.pad) {
-        run.push(clip(group[k]!.text, inner + 8))
-        k += 1
+      const group: Extract<Line, { kind: 'code' }>[] = []
+      while (i < window.length) {
+        const g = window[i]!
+        if (g.kind !== 'code' || g.block !== l.block) break
+        group.push(g)
+        i += 1
       }
-      const language = /^[\w+#.-]{1,24}$/.test(l.language) ? l.language : undefined
-      parts.push(run.some(r => r.trim() !== '')
-        ? <Code source={run.join('\n')} wrap="truncate-end" {...(language ? { language } : {})} />
-        : <Box flexDirection="column">{run.map(() => <Text> </Text>)}</Box>)
+      const preW = spanCells(l.prefix)
+      const parts: JSX.Element[] = []
+      for (let k = 0; k < group.length;) {
+        if (group[k]!.pad) {
+          parts.push(<Text> </Text>)
+          k += 1
+          continue
+        }
+        const run: string[] = []
+        while (k < group.length && !group[k]!.pad) {
+          run.push(clip(group[k]!.text, col.measure + 8))
+          k += 1
+        }
+        const language = /^[\w+#.-]{1,24}$/.test(l.language) ? l.language : undefined
+        parts.push(run.some(r => r.trim() !== '')
+          ? <Code source={run.join('\n')} wrap="truncate-end" {...(language ? { language } : {})} />
+          : <Box flexDirection="column">{run.map(() => <Text> </Text>)}</Box>)
+      }
+      body.push(
+        <Box flexDirection="row">
+          {row(l.prefix, col.left)}
+          <Box flexDirection="column" width={Math.max(4, col.measure - preW)} paddingX={1} backgroundColor={`ansi256(${INK.codeBg})`}>
+            {parts}
+          </Box>
+        </Box>,
+      )
     }
-    body.push(
-      <Box flexDirection="row">
-        {row(l.prefix, gutter)}
-        <Box flexDirection="column" width={Math.max(4, inner - preW)} paddingX={1} backgroundColor={`ansi256(${INK.codeBg})`}>
-          {parts}
-        </Box>
-      </Box>,
-    )
+    // pad by rows, not elements: a code panel is one element over several rows
+    for (; i < bodyH; i++) body.push(<Text> </Text>)
+    return body
   }
-  // pad by rows, not elements: a code panel is one element over several rows
-  for (; i < bodyH; i++) body.push(<Text> </Text>)
 
-  const more = maxScroll > 0 && scroll < maxScroll
-  const top = insetRule(W, gutter, 'claude review', scroll > 0 ? '▲' : null)
-  const bottom = insetRule(W, gutter, null, more ? `▼ ${Math.round((100 * scroll) / maxScroll)}%` : null)
+  const edge = maxScroll > 0
+    ? <Raster key="edge" columns={1} rows={bodyH} cells={encode(paintEdge(lines.map(markOf), bodyH, scroll, bodyH))} />
+    : null
 
   const tree = (
     <Box flexDirection="column">
-      {row(top, 0)}
-      {body}
-      {row(bottom, 0)}
-      {row(keyRow(s, gutter, surfaces, active, state), 0)}
+      <Raster key="lamp" columns={W} rows={1} cells={encode(paintLamp(W, col, s.lamp))} />
+      {row(headRow(s, surface, lines, scroll, col), 0)}
+      <Box flexDirection="row">
+        <Box flexDirection="column" width={bodyW}>
+          {painted ? <Raster key="page" columns={bodyW} rows={bodyH} cells={encode(painted)} /> : textBody()}
+        </Box>
+        {edge}
+      </Box>
+      <Text> </Text>
+      {row(keyRow(s, col, surfaces, active, state), 0)}
     </Box>
   )
 
-  return { tree, laid: { maxScroll, bodyRows: bodyH, surfaces, active } }
+  return { tree, laid: { maxScroll, bodyRows: bodyH, surfaces, active, column: col, page } }
 }

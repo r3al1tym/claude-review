@@ -1,12 +1,14 @@
-// Markdown to rows, in the CLI's monochrome reading theme: emphasis comes from
-// weight (bold, italic, underline), never hue, so the only bright thing in the
-// column is the text itself. Code keeps its syntax colours, as rich does.
+// Markdown to rows, in a monochrome reading theme: emphasis comes from weight
+// (bold, italic, underline) and a grey ramp, never hue, so the only bright
+// thing in the column is the text itself. Code keeps its syntax colours.
 
 import { cells, clean, wrap } from './text'
 import type { Span, Style } from './text'
 
 export const INK = {
   meta: 59, // grey37: the quietest line
+  body: 252, // grey82: running text
+  quiet: 244, // grey50: running heads, eyebrows, cues
   question: 247, // grey62: frames the content
   rule: 238, // grey27: hairlines
   bright: 253, // grey85
@@ -15,11 +17,11 @@ export const INK = {
   code: 253, // inline code text
   codeBg: 237, // a step above the dock's grey15, which rich's code bg matches
   badge: 249, // grey70, on the rule's grey27
-  accent: 6, // cyan: the one colour, for the state you set
+  lamp: 179, // tungsten: the lamp's colour, for words set in Text
 } as const
 
 export type Line =
-  | { kind: 'text'; spans: Span[] }
+  | { kind: 'text'; spans: Span[]; head?: string }
   | { kind: 'code'; prefix: Span[]; text: string; language: string; block: number; pad: boolean }
 
 type Block =
@@ -273,14 +275,14 @@ const blank = (): Line => text([])
 function prefixed(lines: Line[], first: Span[], rest: Span[]): Line[] {
   return lines.map((l, n) => {
     const pre = n === 0 ? first : rest
-    return l.kind === 'text' ? text([...pre, ...l.spans]) : { ...l, prefix: [...pre, ...l.prefix] }
+    return l.kind === 'text' ? { ...l, spans: [...pre, ...l.spans] } : { ...l, prefix: [...pre, ...l.prefix] }
   })
 }
 
 let blockSeq = 0
 
 export function layout(src: string, width: number): Line[] {
-  return stack(parse(src), Math.max(8, width), undefined, false)
+  return stack(parse(src), Math.max(8, width), { color: INK.body }, false)
 }
 
 // Blocks sit a blank row apart, except a list right under its line inside a
@@ -298,11 +300,14 @@ function block(b: Block, width: number, base: Style | undefined): Line[] {
   switch (b.kind) {
     case 'heading': {
       const style: Style = b.level === 1 ? { bold: true, underline: true } : b.level <= 3 ? { bold: true } : { bold: true, italic: true }
-      const rows = wrap(inline(b.text, merge(base, style)), width)
-      if (b.level !== 1) return rows.map(text)
-      return rows.map(r => {
+      const spans = inline(b.text, merge(base, { ...style, color: INK.brightest }))
+      // every row of a heading carries its words, for the running head and the fore-edge
+      const head = spans.map(s => s.text).join('')
+      const rows = wrap(spans, width)
+      if (b.level !== 1) return rows.map((r): Line => ({ kind: 'text', spans: r, head }))
+      return rows.map((r): Line => {
         const pad = Math.max(0, Math.floor((width - r.reduce((w, s) => w + cells(s.text), 0)) / 2))
-        return text([{ text: ' '.repeat(pad) }, ...r])
+        return { kind: 'text', spans: [{ text: ' '.repeat(pad) }, ...r], head }
       })
     }
     case 'para':
