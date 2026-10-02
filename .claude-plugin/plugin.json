@@ -1,0 +1,19 @@
+{
+  "name": "review-pane",
+  "version": "1.0.0",
+  "description": "claude review: the session's latest reply in a calm reading pane docked beside the conversation, with its plan, question and tasks one key away",
+  "author": { "name": "r3al1tym", "url": "https://github.com/r3al1tym" },
+  "homepage": "https://github.com/r3al1tym/claude-review",
+  "repository": "https://github.com/r3al1tym/claude-review",
+  "license": "MIT",
+  "keywords": ["review", "pane", "reader", "markdown", "mod"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "openOnStart": {
+      "type": "boolean",
+      "title": "Open on start",
+      "description": "Open the review pane when a session starts. Off, it opens only when you type /claude-review.",
+      "default": true
+    }
+  }
+}

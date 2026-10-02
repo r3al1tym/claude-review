@@ -1,4 +1,4 @@
-<!-- Thanks for contributing! Keep the tool single-file, one-dependency, and read-only at runtime. -->
+<!-- Thanks for contributing! Keep the mod small and read-only. -->
 
 **What this changes**
 A short description of the change and why.
@@ -6,12 +6,12 @@ A short description of the change and why.
 **Type**
 - [ ] Bug fix
 - [ ] New feature
-- [ ] Docs / packaging
+- [ ] Docs
 - [ ] Refactor / cleanup
 
 **Checklist**
-- [ ] `pytest -q` passes locally
-- [ ] Added/updated a test for any parser or behavior change
-- [ ] Ran the TUI by hand if I touched rendering or input (`claude-review -p "$PWD/examples"`)
-- [ ] No new runtime dependency, file write, subprocess, or network call (or explained why below)
+- [ ] `claude plugin validate .` and `claude plugin test .` pass locally
+- [ ] Added or updated a test for any behaviour change
+- [ ] Looked at the pane in a real terminal if I touched the screen
+- [ ] No writes to the session, network calls or file access (or explained why below)
 - [ ] Noted user-facing changes in `CHANGELOG.md`

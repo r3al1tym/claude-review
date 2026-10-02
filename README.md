@@ -1,80 +1,73 @@
 # claude-review
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
-![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)
-![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20WSL-lightgrey.svg)
+![Claude Code mod](https://img.shields.io/badge/Claude%20Code-mod-d97757.svg)
 
 > **Faster than HTML. Calmer than the terminal.**
 
-A read-only review pane for a single [Claude Code](https://claude.com/claude-code) session. It pins to one session and shows only its **latest response** — rendered as markdown, refreshed in place — so you read and decide in a calm second pane while you drive Claude Code in the first.
+A reading pane docked inside [Claude Code](https://claude.com/claude-code), beside the conversation. It shows the session's **latest reply**, rendered for reading in a padded column, and follows the live turn as Claude writes. Its plan, the question Claude is waiting on, and the task list are one key away.
 
-![claude-review in a split terminal: Claude Code on the left, the latest response pinned and rendered on the right](docs/demo.gif)
+![Claude Code with the review pane docked on the right: the transcript on the left, the latest reply rendered in a calm reading column on the right](docs/pane.png)
 
-**Read-only and offline at runtime.** It only reads your local Claude Code transcript files — no writes, no network, no telemetry. It's a [single Python file](claude_review.py) with one dependency ([`rich`](https://github.com/Textualize/rich)), so you can read it before you run it.
+claude-review is a Claude Code mod: a plugin of function hooks that runs inside Claude Code, so there is no second terminal, no transcript path and nothing to keep in sync.
 
-## Quick start
-
-Already using Claude Code? Install the skill and let Claude wire it up:
+## Install
 
 ```bash
-npx skills add r3al1tym/claude-review -g
+claude plugin marketplace add r3al1tym/claude-review
+claude plugin install review-pane@claude-review
 ```
 
-Then just ask Claude *"open a review pane for this session"* — it resolves the session, installs the `claude-review` CLI if needed, and hands you the command to run in your other pane.
+The next session opens the pane by itself once the terminal is 144 columns or wider. At any width, `/claude-review` opens it and closes it again.
 
-### Or install the CLI directly
+From a clone, link the folder into your skills directory, where Claude Code loads it in every session as `review-pane@skills-dir` and reloads it when you save a file:
 
 ```bash
-pipx install git+https://github.com/r3al1tym/claude-review@v0.5.3
-claude-review
+git clone https://github.com/r3al1tym/claude-review ~/src/claude-review
+ln -s ~/src/claude-review ~/.claude/skills/review-pane
 ```
 
-Run Claude Code in one pane and `claude-review` in the other; it follows the latest response as Claude works. Requires Python 3.9+ and a POSIX terminal (Linux, macOS, WSL). Not on PyPI yet — install from GitHub with `pipx` (or a venv; a bare `pip install --user` may hit [PEP 668](https://peps.python.org/pep-0668/)).
+For one session only: `claude --plugin-dir ~/src/claude-review`.
 
-## What it does
+## Use
 
-- **One session, pinned.** Pick the session you care about; the view never drifts to another.
-- **Latest response only.** The current answer, rendered as clean markdown — re-anchored to the top each turn, never a scrolling log.
-- **Surfaces.** `Tab` cycles `response`, `question` (when Claude asks you one), `plan` (from plan mode), and `tasks` (the live task list).
-- **Freeze.** Press `f` to hold the view while Claude keeps working; a marker shows when newer content is waiting.
-- **History.** `←`/`→` step back and forward through the session's turns, so an earlier answer (the detailed one from three prompts ago) is one keypress away; the pane keeps following the live turn until you step back, and flags when a newer one lands.
+The pane follows the live turn. Give it the keyboard with ctrl+x then Tab (until you do, its key row says `ctrl+x ⇥ focus`), and Esc hands the keys back.
 
-> Claude Code's built-in [`/focus`](https://code.claude.com/docs/en/interactive-mode) declutters the *live* session in place; `claude-review` is the complement — a dedicated, scrollable reading pane alongside it.
+| Keys | What they do |
+| --- | --- |
+| `h` `l` | earlier / later turn; an earlier turn leads with the prompt it answered |
+| `↑` `↓` `j` `k`, wheel, PgUp PgDn, Home End, `g` | scroll |
+| `f` | freeze the view while Claude keeps working; again to unfreeze |
+| `r` | back to the live turn |
+| `t` | next surface: plan, question, response, tasks, whichever this turn has |
+| `y` | copy the surface shown |
+| `m` | the guide: every key, plus the session's diagnostics |
+| `q` | close the pane |
 
-## Usage
+A plan waiting for your approval and a pending question lead while Claude waits on them. While the view is frozen or on an earlier turn, `new reply` lights up in the key row when a reply lands on the live turn.
 
-```bash
-claude-review                 # pick a recent session, then review it
-claude-review -s <id-prefix>  # attach to a session id, in any project folder
-claude-review -p <path|slug>  # review another project (path or Claude slug)
-claude-review -l              # list recent sessions and exit
-claude-review --help          # all flags and keys
-```
-
-**Keys:** `?` opens the guide in the pane: what claude-review is for, every key grouped by intent, and a diagnostics block (session, model, project, transcript, turn, last write). `Tab` surfaces · `y` copy the current surface · `f` freeze · `↑`/`↓` or `j`/`k` scroll (mouse wheel works too) · `space`/`b` page · `g`/`G` top/bottom · `←`/`→` (or `h`/`l`, `[`/`]`) earlier/later turn · `s` switch session · `r` refresh (back to the latest turn) · `q` quit.
-
-**Reviewing another project:** `-s <id>` finds a session in any project folder, including a resumed session filed under the folder it was started in. To browse another project, run `claude-review` from the project directory, or pass `-p` an absolute path. If a lookup ever misses, run `ls ~/.claude/projects/` and pass the literal directory name with `-p`. If your `~/.claude` lives elsewhere, set `CLAUDE_CONFIG_DIR`. ([slug details](docs/troubleshooting.md))
-
-To try the UI with no live session, a sample transcript ships in the repo: `claude-review -p "$PWD/examples"` (from a clone).
+To change the default, set *Open on start* in `/config` (on: the pane opens by itself on a wide terminal; off: only `/claude-review` opens it). `claude plugin disable review-pane@claude-review` turns the mod off everywhere, and `enable` turns it back on.
 
 ## How it works
 
-`claude-review` reads the selected session's local JSONL transcript and reconstructs the current turn — the latest prompt and the response, question, plan, and tasks the assistant produced after it — re-reading only when the file changes. No network, ever.
+The mod reads the conversation through the hooks API (`$.session.messages()`) and refreshes as rows land (`session.append`), so the pane updates while Claude writes, not only when a turn ends. It writes nothing to the session, makes no network calls and touches no files; `y` puts text on your clipboard through Claude Code.
+
+In the terminal it lays out its own rows (`hooks/markdown.ts`, `hooks/screen.tsx`): a monochrome markdown theme where emphasis comes from weight and only code keeps its syntax colours, a 4-cell gutter, and chrome pinned at the edges. A rule with the `claude review` label sits at the top, and a rule and one key row sit at the bottom. The rules carry ▲ and ▼ N% when there is more above or below. The desktop app and VS Code draw the same reply with their own Markdown and buttons.
 
 ## Limitations
 
-- **Terminal-driven.** Needs an interactive TTY; it's a viewer, not a pipe.
-- **Plan/tasks are best-effort.** They depend on Claude Code emitting the relevant transcript events.
-- **No horizontal scroll.** Wide tables wrap to fit rather than scroll sideways.
-- **Transcript format.** Parses Claude Code's current JSONL layout; a future format change may need a parser update — issues/PRs welcome.
+- **Early access.** Function hooks are an early-access Claude Code surface that may change between releases. This version is checked against Claude Code 2.1.287 with `claude plugin validate .` and `claude plugin test .`.
+- **Letter keys.** A pane's keys are letters and digits, so the guide is `m` and surfaces are `t`, and the pane needs the keyboard (ctrl+x then Tab) before they work.
+- **No horizontal scroll.** Wide tables shrink their widest columns and wrap.
+
+## The standalone CLI
+
+claude-review began as a Python TUI you ran in a second terminal pane. The mod replaces it. Its last release, v0.5.3, still installs with `pipx install git+https://github.com/r3al1tym/claude-review@v0.5.3`, and its source lives at that tag.
 
 ## Contributing
 
-Small, single-file, read-only by design — see [CONTRIBUTING.md](CONTRIBUTING.md)
-for the dev setup and the ground rules. Security posture and how to report a
-vulnerability are in [SECURITY.md](SECURITY.md); the project follows a
-[Code of Conduct](CODE_OF_CONDUCT.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development loop. Security posture and how to report a vulnerability are in [SECURITY.md](SECURITY.md); the project follows a [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
-[MIT](LICENSE) © r3al1tym. The JetBrains Mono fonts under `demo/` (used only to render the GIF, not part of the installed package) are [SIL OFL 1.1](demo/OFL.txt).
+[MIT](LICENSE) © r3al1tym.

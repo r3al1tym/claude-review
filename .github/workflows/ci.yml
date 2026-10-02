@@ -7,106 +7,16 @@ on:
   pull_request:
 
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        # Full Python sweep on Linux; a representative version on macOS and
-        # Windows to keep the cross-OS slug/encoding logic and the native-Windows
-        # degrade path honest. (The interactive TUI needs a tty and can't run in
-        # CI on any OS — that stays manual.)
-        os: [ubuntu-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
-        include:
-          - os: macos-latest
-            python-version: "3.12"
-          - os: windows-latest
-            python-version: "3.12"
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install (with test extras)
-        run: |
-          python -m pip install --upgrade pip
-          pip install ".[test]"
-      - name: Smoke check the console script
-        run: |
-          claude-review --version
-          claude-review --help
-      - name: Run tests
-        run: python -m pytest -q
-
-  build:
+  mod:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
-      - name: Build sdist and wheel
-        run: |
-          python -m pip install --upgrade pip build
-          python -m build
-      - name: Check the personal email never ships in metadata
-        run: |
-          ! unzip -p dist/*.whl '*/METADATA' | grep -i 'gmail' || (echo "personal email leaked into wheel metadata" && exit 1)
-
-  # Guard the documented install: every install path (README, setup.sh, SKILL.md)
-  # pins @v<pyproject-version>, so that tag MUST exist on origin or a fresh
-  # `pipx install ...@vX.Y.Z` 404s. This job fails the moment the version is
-  # bumped without a matching pushed tag — the exact regression that shipped a
-  # broken install once. (Skipped on the release tag build itself, where the tag
-  # is being created.)
-  release-tag-exists:
-    runs-on: ubuntu-latest
-    if: github.ref_type != 'tag'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-      - name: The pinned release tag must exist
-        run: |
-          VER=$(sed -nE 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' pyproject.toml | head -1)
-          echo "pyproject version: $VER"
-          if git ls-remote --exit-code --tags origin "refs/tags/v${VER}" >/dev/null 2>&1; then
-            echo "OK — tag v${VER} exists on origin"
-          else
-            echo "::error::pyproject version is $VER but tag v$VER is not pushed to origin."
-            echo "::error::Every documented install pins @v$VER, so it would 404. Run: git tag -a v$VER -m v$VER && git push origin v$VER"
-            exit 1
-          fi
-
-  # Clean-room install test: prove a brand-new user can install from the
-  # published source and resolve a freshly-seeded transcript — the stranger
-  # path that unit tests can't cover. Runs on every push/PR against the current
-  # ref, and on a tag against that exact published tag.
-  cleanroom:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run the clean-room install test in a fresh container
-        run: |
-          # On a tag, install that published tag; otherwise install from this
-          # checkout's working tree (mounted into the container).
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            REF="${GITHUB_REF_NAME}"; REPO="https://github.com/${GITHUB_REPOSITORY}"
-            SRC_ARG=""
-          else
-            REF="local"; REPO="file:///src"; SRC_ARG="-v ${PWD}:/src:ro"
-          fi
-          docker run --rm \
-            -e CRV_REF="$REF" -e CRV_REPO="$REPO" \
-            -v "${PWD}/tests/cleanroom.sh:/run.sh:ro" $SRC_ARG \
-            python:3.12-slim bash -c '
-              apt-get update -qq >/dev/null && apt-get install -y -qq git >/dev/null
-              useradd -m tester
-              cp /run.sh /home/tester/run.sh && chown tester /home/tester/run.sh
-              # for the non-tag case, give the tester read access to the mounted tree
-              [ -d /src ] && chmod -R a+rX /src || true
-              su tester -c "bash /home/tester/run.sh"
-            '
+          node-version: "22"
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Validate the manifests and the hooks module
+        run: claude plugin validate . && claude plugin validate .claude-plugin/plugin.json
+      - name: Run the test suite against the engine
+        run: claude plugin test .

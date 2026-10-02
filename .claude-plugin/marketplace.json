@@ -1,0 +1,15 @@
+{
+  "name": "claude-review",
+  "description": "claude review, a Claude Code mod: a calm reading pane for the session you are in",
+  "owner": {
+    "name": "r3al1tym",
+    "url": "https://github.com/r3al1tym"
+  },
+  "plugins": [
+    {
+      "name": "review-pane",
+      "source": "./",
+      "description": "claude review: the session's latest reply in a calm reading pane docked beside the conversation"
+    }
+  ]
+}
