@@ -43,8 +43,9 @@ export type ScreenInput = {
   prompt: string | null
   // the last answer, dimmed under a new prompt that has no reply yet
   dim: boolean
-  // the lamp's light now, and whether the terminal paints true colour
+  // the lamp's light now, whether it holds still, and whether the terminal paints true colour
   lamp: Light
+  still: boolean
   deep: boolean
   // what the session waits on the person for
   waiting: 'plan' | 'question' | null
@@ -419,7 +420,10 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
 
   const tree = (
     <Box flexDirection="column" backgroundColor={INK.ground}>
-      {row(lampSpans(paintLamp(W, col, s.lamp, s.deep)), 0)}
+      {s.still
+        // still, the lamp is Text at full colour depth; moving, a Raster the timer repaints
+        ? row(lampSpans(paintLamp(W, col, s.lamp, s.deep)), 0)
+        : <Raster key="lamp" columns={W} rows={1} cells={encode(paintLamp(W, col, s.lamp, s.deep))} />}
       {painted
         // a settle paints the body and its fore-edge as one grid, so the edge rises with its rows
         ? <Raster key="page" columns={W} rows={bodyH + 1} cells={encode(painted)} />

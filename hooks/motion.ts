@@ -141,9 +141,6 @@ export function lampLight(lamp: Lamp, t: number): Light {
   return { level: lamp.from.level + (to.level - lamp.from.level) * light, span: lamp.from.span + (to.span - lamp.from.span) * open }
 }
 
-// The lamp eases for LAMP_EASE_MS after a change of state.
-export const lampEasing = (lamp: Lamp, t: number): boolean => t - lamp.since < LAMP_EASE_MS
-
 // The lamp moves while it breathes or eases; otherwise it holds still.
 export const lampMoving = (lamp: Lamp, t: number): boolean => lamp.state === 'working' || t - lamp.since < LAMP_EASE_MS
 

@@ -142,9 +142,10 @@ export function paintLamp(columns: number, col: Column, light: Light, deep = tru
   const x0 = col.left + Math.floor((col.measure - lit) / 2)
   for (let x = x0; x < Math.min(columns, x0 + lit); x++) {
     // a filament: hottest at the centre, cooling along the filament curve to
-    // the ends, each cell its own colour and nothing outside the line lit
+    // the ends, each cell its own colour and nothing outside the line lit; an
+    // ember is short enough to burn even, and the cooling grows as it opens
     const d = Math.abs(x + 0.5 - (x0 + lit / 2)) / Math.max(1, lit / 2)
-    const c = deep ? lampColour(level * (1 - 0.42 * d * d)) : colour
+    const c = deep ? lampColour(level * (1 - 0.42 * Math.max(0, Math.min(1, light.span)) * d * d)) : colour
     page.cells.set(cell[1] === GROUND ? [cell[0]!, GROUND, c] : [cell[0]!, c, GROUND], x * 3)
   }
   return page.cells
