@@ -327,8 +327,35 @@ test('in a 256-colour terminal the lamp keeps palette colours and breathes by it
 
   await clock.advance(2000)
   const words = (cells: string) => new Uint32Array(Uint8Array.from(atob(cells), c => c.charCodeAt(0)).buffer)
-  const lit = blits.filter(b => b.key === 'lamp').map(b => words(b.cells).slice(12, 15)) // a cell inside the column
+  const lit = blits.filter(b => b.key === 'lamp').map(b => words(b.cells).slice(120, 123)) // the ember, at the centre
   expect(new Set(lit.map(w => w[0])).size).toBeGreaterThan(1) // the glyph, so the weight, changes
   expect(lit.every(w => w[1] === 0x875f00 || w[2] === 0x875f00)).toBe(true) // one palette brown throughout
+  await ui.unmount()
+})
+
+test('the lamp gathers into an ember while Claude works and opens across the column when the turn is done', async ($, on) => {
+  fakePanes(on)
+  const { clock } = light(on)
+  on('session.messages', () => ({ value: [prompt('first ask'), reply('The first answer.')] }))
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  await $.command.run(TOGGLE)
+  const ui = await mountTerminal($)
+  const lampRow = async () => {
+    const lamp = await ui.find({ type: 'Raster', key: 'lamp' }) as { props: { columns: number; cells: string } }
+    return rowText(lamp.props.cells, lamp.props.columns, 0)
+  }
+  // 80 columns: the column is cells 4 to 75, the ember the middle ten
+  expect((await lampRow()).slice(4, 76).trim().length).toBe(72)
+
+  await $.turn.start({ text: 'second ask', turnId: 'main' })
+  await clock.advance(SETTLED)
+  await ui.redraw()
+  expect((await lampRow()).trim().length).toBe(10)
+
+  await $.turn.complete({ ...turnEnd, turnId: 'main' })
+  await clock.advance(SETTLED)
+  await ui.redraw()
+  expect((await lampRow()).slice(4, 76).trim().length).toBe(72)
   await ui.unmount()
 })

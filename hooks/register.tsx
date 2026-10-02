@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, UiPressArgument } from 'claude-code'
 
 import type { ReviewSnapshot, ReviewTurn, ReviewView } from '../types'
-import { lampLevel, lampMoving, relight, settleFrame, settleMs } from './motion'
+import { lampLight, lampMoving, relight, settleFrame, settleMs } from './motion'
 import type { Lamp, LampState } from './motion'
 import { encode, paintLamp } from './paint'
 import type { Column, Page } from './paint'
@@ -189,7 +189,7 @@ function stopLamp(): void {
 async function lampTick($: EngineInterface): Promise<void> {
   const t = await $.clock.now()
   if (!lamp || !lampAt) return stopLamp()
-  const cells = encode(paintLamp(lampAt.columns, lampAt.column, lampLevel(lamp, t), lampAt.deep))
+  const cells = encode(paintLamp(lampAt.columns, lampAt.column, lampLight(lamp, t), lampAt.deep))
   const res = await $.ui.blit({ requestId: PANE, key: 'lamp', cells })
   if (res.deny || !lampMoving(lamp, t)) stopLamp()
 }
@@ -358,7 +358,7 @@ export const register: Register = (on, options) => {
         facts,
         prompt,
         dim,
-        lamp: lampLevel(lamp, now),
+        lamp: lampLight(lamp, now),
         deep,
         waiting,
       }, paint)

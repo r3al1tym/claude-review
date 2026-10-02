@@ -9,8 +9,8 @@ All notable changes to this project are documented here. The format is based on
 The pane becomes a page under a lamp: one line of warm light over the reply that tells you, from the corner of your eye, whether Claude is working or waiting on you, and a page that never jump-cuts.
 
 ### Added
-- **The lamp.** A line of light along the top of the column. While Claude works it is turned down to an ember and breathes slowly; when the turn is done it is up and steady; when a plan or a question waits on you it burns full and thickens, and the question or plan leads under a *Waiting for your answer* or *Waiting for your approval* eyebrow.
-- **The settle.** A new reply never replaces the page in one frame: the old page sinks into the ground, then the new one rises line by line from the top, in about 0.7 s, painted cell by cell in true colour.
+- **The lamp.** A line of light along the top of the column. While Claude works it gathers into a short ember at the centre that breathes slowly; when the turn passes to you it opens across the column and holds; when a plan or a question waits on you it burns full and heavier, and the question or plan leads under a *Waiting for your answer* or *Waiting for your approval* eyebrow.
+- **The settle.** A new reply never replaces the page in one frame: the old page sinks into the ground, then the new one is lit line by line from the top, each line passing through the lamp's warmth before it cools to its grey, in under a second, painted cell by cell in true colour.
 - **The last answer stays.** While a new prompt runs and has no reply yet, the last answer stays on the page, dimmed, under your new prompt.
 - **The fore-edge.** A reply longer than the pane gets a map down its right edge: prose as a thin rule, code as a block, headings as bright ticks, and a bar of lamp light beside the rows in view.
 - **The running head.** Scrolled into a long reply, the row under the lamp names the section you are in.
@@ -19,6 +19,9 @@ The pane becomes a page under a lamp: one line of warm light over the reply that
 - The column is centred and at most 72 cells wide, on its own ground; both hairline rules and the `claude review` wordmark are gone, and an earlier turn names itself (*Turn 2 of 5*) in the head row.
 - Every colour is a 12-bit value shared by the Text and the painted cells, so a settled frame lands on exactly what Text draws. Running text is a set grey, headings the brightest.
 - A table whose rows wrap sets its rows a blank line apart.
+- Inline code is set in the brightest ink, without a chip behind it.
+- A long code line wraps where a formatter would break it (after a comma, then a bracket, then an operator or space) and hangs its continuation four cells deeper, instead of being cut off.
+- A section heading sits on its own text, with air above it and none below.
 
 ### Fixed
 - A blank line inside a code block keeps its row.

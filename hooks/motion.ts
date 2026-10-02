@@ -57,25 +57,33 @@ export function settleFrame(from: Page, to: Page, t: number): Uint32Array {
   return out
 }
 
-// The lamp: how bright it burns is how much the session wants you. Working,
-// it is turned down to an ember that breathes slowly; done, it is up and
-// steady; waiting on you, it burns full. A change of state eases over
-// LAMP_EASE_MS.
+// The lamp: how much of the column it lights, and how bright, is how much
+// the session wants you. Working, it gathers into an ember at the centre that
+// breathes slowly; when the turn passes to you it opens across the column and
+// holds; waiting on you, it burns full and heavier. A change of state eases
+// over LAMP_EASE_MS: the light by a smoothstep, the opening fast then slow.
 export type LampState = 'working' | 'done' | 'waiting'
 
+// `span` runs from the ember (0) to the whole column (1)
+export type Light = { level: number; span: number }
+
 const BREATH_MS = 3600
-const LAMP_EASE_MS = 600
-const STEADY: Record<Exclude<LampState, 'working'>, number> = { done: 0.86, waiting: 1 }
+const LAMP_EASE_MS = 700
+const STEADY: Record<Exclude<LampState, 'working'>, number> = { done: 0.72, waiting: 1 }
 
-export type Lamp = { state: LampState; since: number; from: number }
+export type Lamp = { state: LampState; since: number; from: Light }
 
-const target = (state: LampState, t: number, since: number): number =>
-  state === 'working' ? 0.14 + 0.3 * (0.5 - 0.5 * Math.cos((2 * Math.PI * (t - since)) / BREATH_MS)) : STEADY[state]
+const target = (state: LampState, t: number, since: number): Light =>
+  state === 'working'
+    ? { level: 0.3 + 0.3 * (0.5 - 0.5 * Math.cos((2 * Math.PI * (t - since)) / BREATH_MS)), span: 0 }
+    : { level: STEADY[state], span: 1 }
 
-export function lampLevel(lamp: Lamp, t: number): number {
+export function lampLight(lamp: Lamp, t: number): Light {
   const p = Math.min(1, Math.max(0, (t - lamp.since) / LAMP_EASE_MS))
-  const eased = p * p * (3 - 2 * p)
-  return lamp.from + (target(lamp.state, t, lamp.since) - lamp.from) * eased
+  const to = target(lamp.state, t, lamp.since)
+  const light = p * p * (3 - 2 * p)
+  const open = 1 - (1 - p) ** 3
+  return { level: lamp.from.level + (to.level - lamp.from.level) * light, span: lamp.from.span + (to.span - lamp.from.span) * open }
 }
 
 // The lamp moves while it breathes or eases; otherwise it holds still.
@@ -84,4 +92,4 @@ export const lampMoving = (lamp: Lamp, t: number): boolean => lamp.state === 'wo
 // A new state starts its ease from wherever the light is now.
 export const relight = (lamp: Lamp | null, state: LampState, t: number): Lamp =>
   lamp === null ? { state, since: t - LAMP_EASE_MS, from: target(state, t, t) }
-    : lamp.state === state ? lamp : { state, since: t, from: lampLevel(lamp, t) }
+    : lamp.state === state ? lamp : { state, since: t, from: lampLight(lamp, t) }

@@ -11,6 +11,7 @@ import type { ReviewTask, ReviewTurn, ReviewView } from '../types'
 import { INK, layout } from './markdown'
 import type { Line } from './markdown'
 import { encode, markOf, paintEdge, paintLamp, paintPage } from './paint'
+import type { Light } from './motion'
 import type { Column, Page } from './paint'
 import { cells, clip, oneline, spanCells, wrap } from './text'
 import type { Span, Style } from './text'
@@ -41,8 +42,8 @@ export type ScreenInput = {
   prompt: string | null
   // the last answer, dimmed under a new prompt that has no reply yet
   dim: boolean
-  // the lamp's level now, 0 to 1, and whether the terminal paints true colour
-  lamp: number
+  // the lamp's light now, and whether the terminal paints true colour
+  lamp: Light
   deep: boolean
   // what the session waits on the person for
   waiting: 'plan' | 'question' | null

@@ -44,7 +44,7 @@ The pane follows the live turn. Give it the keyboard with ctrl+x then Tab (until
 | `m` | the guide: every key, plus the session's diagnostics |
 | `q` | close the pane |
 
-The lamp is the session's state. While Claude works it is turned down to an ember and breathes slowly; when the turn is done it is up and steady; when a plan or a question waits on you it burns full, and the plan or question leads the page. A new reply settles in: the old page sinks and the new one rises line by line. While a new prompt runs, the last answer stays on the page, dimmed, under your prompt.
+The lamp is the session's state. While Claude works it gathers into a short ember at the centre that breathes slowly; when the turn passes to you it opens across the column and holds; when a plan or a question waits on you it burns full and heavier, and the plan or question leads the page. A new reply settles in: the old page sinks and the new one is lit line by line from the top, each line passing through the lamp's warmth. While a new prompt runs, the last answer stays on the page, dimmed, under your prompt.
 
 A reply longer than the pane gets a fore-edge, a map of the whole reply down the right edge with the rows in view lit, and once you scroll into it the row under the lamp names the section you are in. While the view is frozen or on an earlier turn, `new reply` lights up in the key row when a reply lands on the live turn.
 
@@ -60,7 +60,8 @@ In the terminal it lays out its own rows (`hooks/markdown.ts`, `hooks/screen.tsx
 
 - **Early access.** Function hooks are an early-access Claude Code surface that may change between releases. This version is checked against Claude Code 2.1.287 with `claude plugin validate .` and `claude plugin test .`.
 - **Letter keys.** A pane's keys are letters and digits, so the guide is `m` and surfaces are `t`, and the pane needs the keyboard (ctrl+x then Tab) before they work.
-- **No horizontal scroll.** Wide tables shrink their widest columns and wrap.
+- **No horizontal scroll.** Wide tables shrink their widest columns and wrap; long code lines wrap with a hanging indent.
+- **Colour depth.** The lamp and the settle are smoothest where Claude Code paints true colour. Under tmux, or without `COLORTERM=truecolor`, it paints 256 colours, and the lamp keeps three palette colours and breathes by its weight.
 
 ## The standalone CLI
 

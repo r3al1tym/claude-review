@@ -17,7 +17,7 @@ export const INK = {
   bright: '#dddddd',
   brightest: '#eeeeee', // headings
   link: '#888888',
-  code: '#dddddd', // inline code text
+  code: '#eeeeee', // inline code: the brightest ink, no chip
   codeBg: '#333333', // a step above the page
   badge: '#aaaaaa', // key chips, on the rule's grey
   lamp: '#ddaa66', // tungsten, for the words that speak for the lamp
@@ -79,7 +79,7 @@ export function inline(src: string, base?: Style): Span[] {
         flush()
         let code = src.slice(i + run.length, end).replace(/\n/g, ' ')
         if (code.startsWith(' ') && code.endsWith(' ') && code.trim() !== '') code = code.slice(1, -1)
-        out.push({ text: code, style: merge(base, { color: INK.code, bg: INK.codeBg }) })
+        out.push({ text: code, style: merge(base, { color: INK.code }) })
         i = end + run.length
         continue
       }
@@ -347,25 +347,31 @@ function block(b: Block, width: number, base: Style | undefined): Line[] {
   }
 }
 
-// A code line wider than the panel wraps where it offers a break (after a
-// space or one of , ; ( { [ =), else where it must; each continuation hangs
-// four cells under the line's own indent, deeper than the next block level,
-// so it never reads as a new statement.
+// A code line wider than the panel wraps where a formatter would break it:
+// after a comma first, then after an opening bracket, then after an operator
+// or a space, taking the latest such break in the line's second half, else
+// cutting where it must. Each continuation hangs four cells under the line's
+// own indent, deeper than the next block level, so it never reads as a new
+// statement.
+const BREAKS: readonly RegExp[] = [/,/, /[({[]/, /[=:|&?+-]/, /\s/]
+
 export function softWrap(line: string, width: number): string[] {
   if (cells(line) <= width || width < 8) return [line]
   const hang = ' '.repeat(Math.min((/^ */.exec(line)?.[0].length ?? 0) + 4, Math.floor(width / 2)))
   const out: string[] = []
   let rest = [...line]
   for (let first = true; cells(rest.join('')) > width; first = false) {
-    let used = 0
     let fit = 0
-    let cut = 0
-    for (; fit < rest.length; fit++) {
-      used += cells(rest[fit]!)
-      if (used > width) break
-      if (/[\s,;({[=]/.test(rest[fit]!)) cut = fit + 1
+    for (let used = 0; fit < rest.length && (used += cells(rest[fit]!)) <= width;) fit++
+    const floor = Math.max(first ? 1 : hang.length + 1, Math.floor(fit / 2))
+    let cut = fit
+    for (const brk of BREAKS) {
+      const at = rest.slice(0, fit).findLastIndex((ch, i) => i + 1 >= floor && brk.test(ch) && rest[i + 1] !== undefined)
+      if (at >= 0) {
+        cut = at + 1
+        break
+      }
     }
-    if (cut <= (first ? 0 : hang.length)) cut = fit
     out.push(rest.slice(0, cut).join('').trimEnd())
     rest = [...hang, ...rest.slice(cut).join('').trimStart()]
   }
