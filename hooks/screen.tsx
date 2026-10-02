@@ -159,7 +159,7 @@ function helpLines(s: ScreenInput, width: number, state: State): Line[] {
   }
 
   out.push(blank(), rule, blank())
-  const value: Style = { color: INK.meta }
+  const value: Style = { color: INK.quiet }
   const facts: [string, string, Style][] = [
     ['state', state.word, state.style.color === INK.lamp ? state.style : value],
     ['session', s.facts?.session ?? '?', value],
@@ -169,9 +169,9 @@ function helpLines(s: ScreenInput, width: number, state: State): Line[] {
     ['pane', `${s.placement}, ${s.columns} × ${s.rows}`, value],
   ]
   const labW = Math.max(...facts.map(([k]) => k.length)) + 2
-  out.push(textLine([{ text: 'DIAGNOSTICS', style: { color: INK.rule } }]))
+  out.push(textLine([{ text: 'DIAGNOSTICS', style: { color: INK.meta } }]))
   for (const [k, v, st] of facts) {
-    out.push(textLine([{ text: k.padEnd(labW), style: { color: INK.rule } }, { text: clip(oneline(v), Math.max(1, width - labW)), style: st }]))
+    out.push(textLine([{ text: k.padEnd(labW), style: { color: INK.meta } }, { text: clip(oneline(v), Math.max(1, width - labW)), style: st }]))
   }
 
   return out
@@ -199,8 +199,9 @@ export function stateOf(s: Pick<ScreenInput, 'view' | 'waiting' | 'working' | 't
 
 // The row under the lamp: what waits on you, why the page is dim, the
 // section in view, or which earlier turn this is; blank when none applies.
+// It belongs to the page, so it settles and dims with it.
 function headRow(s: ScreenInput, surface: Surface, lines: readonly Line[], scroll: number, col: Column): Span[] {
-  const at = (text: string, style: Style): Span[] => [{ text: ' '.repeat(col.left) }, { text: clip(text, col.measure), style }]
+  const at = (text: string, style: Style): Span[] => [{ text: clip(text, col.measure), style }]
   if (s.view.help) return []
   if (surface.label === 'question' && s.waiting === 'question') return at('Waiting for your answer', { color: INK.lamp })
   if (surface.label === 'plan' && s.turn.planWaiting && s.waiting === 'plan') return at('Waiting for your approval', { color: INK.lamp })
@@ -296,8 +297,10 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
   const scroll = Math.max(0, Math.min(s.view.scroll, maxScroll))
   const window = lines.slice(scroll, scroll + bodyH)
 
-  const inks = window.map((_, y) => (s.dim && scroll + y >= lead.length ? DIM : 1))
-  const page = paintPage(window, col, bodyW, bodyH, inks)
+  // the page is the head row and the body window, as one grid of cells
+  const head = headRow(s, surface, lines, scroll, col)
+  const inks = [1, ...window.map((_, y) => (s.dim && scroll + y >= lead.length ? DIM : 1))]
+  const page = paintPage([textLine(head), ...window], col, bodyW, bodyH + 1, inks)
   const painted = paint?.(page) ?? (s.dim ? page.cells : null)
 
   const styled = (sp: Span): JSX.Element => {
@@ -369,16 +372,20 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
   }
 
   const edge = maxScroll > 0
-    ? <Raster key="edge" columns={2} rows={bodyH} cells={encode(paintEdge(lines.map(markOf), bodyH, scroll, bodyH))} />
+    ? (
+        <Box flexDirection="column">
+          <Text>{'  '}</Text>
+          <Raster key="edge" columns={2} rows={bodyH} cells={encode(paintEdge(lines.map(markOf), bodyH, scroll, bodyH))} />
+        </Box>
+      )
     : null
 
   const tree = (
     <Box flexDirection="column" backgroundColor={INK.ground}>
       <Raster key="lamp" columns={W} rows={1} cells={encode(paintLamp(W, col, s.lamp))} />
-      {row(headRow(s, surface, lines, scroll, col), 0)}
       <Box flexDirection="row">
         <Box flexDirection="column" width={bodyW}>
-          {painted ? <Raster key="page" columns={bodyW} rows={bodyH} cells={encode(painted)} /> : textBody()}
+          {painted ? <Raster key="page" columns={bodyW} rows={bodyH + 1} cells={encode(painted)} /> : [row(head, col.left), ...textBody()]}
         </Box>
         {edge}
       </Box>

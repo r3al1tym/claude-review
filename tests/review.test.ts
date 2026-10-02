@@ -60,6 +60,15 @@ function light(on: On) {
 
 const SETTLED = 1000 // past the longest settle
 
+// one row of a Raster's cells, as text
+function rowText(cells: string, columns: number, row: number): string {
+  const bytes = Uint8Array.from(atob(cells), c => c.charCodeAt(0))
+  const words = new Uint32Array(bytes.buffer)
+  let out = ''
+  for (let x = 0; x < columns; x++) out += String.fromCodePoint(words[(row * columns + x) * 3]!)
+  return out
+}
+
 const turnEnd = { answer: '', durationMs: 1, isAborted: false, turnId: 'x', reason: 'answer' } as const
 const mountTerminal = ($: Engine, bodyRows?: number, bodyColumns?: number) =>
   $.ui.mount({ plugin: 'review-pane', surface: 'terminal', component: 'Pane', requestId: 'claude-review', props: props(bodyRows, bodyColumns) })
@@ -83,7 +92,7 @@ test('the terminal pane draws the page: the lamp, the reply in a set column, the
   await ui.unmount()
 })
 
-test('the tree is the body rows plus one: lamp, head, body, air, key row', async ($, on) => {
+test('the tree is the body rows plus one: lamp, head and body, air, key row', async ($, on) => {
   fakePanes(on)
   light(on)
   on('session.messages', () => ({ value: [prompt('ask'), reply(Array.from({ length: 80 }, (_, i) => `Line ${i}.`).join('\n\n'))] }))
@@ -93,11 +102,11 @@ test('the tree is the body rows plus one: lamp, head, body, air, key row', async
   type Node = { type: string; props?: Record<string, unknown>; children: Node[] }
   const drawn = await ui.drawn() as Node
   const rows = drawn.children[0]!.children
-  expect(rows.map(r => r.type)).toEqual(['Raster', 'Text', 'Box', 'Text', 'Text'])
-  // 16 body rows beside the fore-edge, then the hidden spacer row: 20 + 1
-  const [column, edge] = rows[2]!.children
-  expect(column!.children.length).toBe(16)
-  expect(edge?.props?.rows).toBe(16)
+  expect(rows.map(r => r.type)).toEqual(['Raster', 'Box', 'Text', 'Text'])
+  // the head row and 16 body rows beside the fore-edge, then the hidden spacer row: 20 + 1
+  const [column, edge] = rows[1]!.children
+  expect(column!.children.length).toBe(17)
+  expect(edge!.children[1]?.props?.rows).toBe(16)
   expect(drawn.children.length).toBe(3)
   await ui.unmount()
 })
@@ -293,8 +302,10 @@ test('while a new prompt runs, the last answer stays on the page, dimmed, and th
 
   await $.turn.start({ text: 'second ask', turnId: 'main' })
   const ui = await mountTerminal($)
-  expect(await ui.find({ type: 'Text', text: 'The last answer, until the new one lands' })).toBeDefined()
-  expect(await ui.find({ type: 'Raster', key: 'page' })).toBeDefined()
+  // the dimmed page is cells: its head row says why, the prompt leads the body
+  const page = await ui.find({ type: 'Raster', key: 'page' }) as { props: { columns: number; cells: string } } | undefined
+  expect(rowText(page!.props.cells, page!.props.columns, 0).trim()).toBe('The last answer, until the new one lands')
+  expect(rowText(page!.props.cells, page!.props.columns, 1).trim()).toBe('› second ask')
   expect(await ui.find({ type: 'Text', text: /^working/ })).toBeDefined()
 
   await clock.advance(400)

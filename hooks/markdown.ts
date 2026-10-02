@@ -358,8 +358,11 @@ function table(b: Extract<Block, { kind: 'table' }>, width: number, base: Style 
   }
 
   const out: Line[] = []
-  grid.forEach((row, r) => {
-    const wrapped = row.map((cell, c) => wrap(r === 0 ? cell.map(s => ({ ...s, style: merge(s.style, { bold: true }) })) : cell, widths[c]!))
+  const cellsOfRow = grid.map((row, r) => row.map((cell, c) => wrap(r === 0 ? cell.map(s => ({ ...s, style: merge(s.style, { bold: true }) })) : cell, widths[c]!)))
+  // once any row wraps, rows sit a blank apart so each reads as one record
+  const airy = cellsOfRow.slice(1).some(row => row.some(w => w.length > 1))
+  cellsOfRow.forEach((wrapped, r) => {
+    if (airy && r > 1) out.push(text([]))
     const height = Math.max(...wrapped.map(w => w.length))
     for (let k = 0; k < height; k++) {
       const spans: Span[] = [{ text: ' ' }]
