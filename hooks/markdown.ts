@@ -5,19 +5,22 @@
 import { cells, clean, wrap } from './text'
 import type { Span, Style } from './text'
 
+// Every colour is a 12-bit one (#rgb doubled): a Raster paints at that depth,
+// so Text and the painted page land on the same values.
 export const INK = {
-  meta: 59, // grey37: the quietest line
-  body: 252, // grey82: running text
-  quiet: 244, // grey50: running heads, eyebrows, cues
-  question: 247, // grey62: frames the content
-  rule: 238, // grey27: hairlines
-  bright: 253, // grey85
-  brightest: 255, // grey93
-  link: 244, // grey50
-  code: 253, // inline code text
-  codeBg: 237, // a step above the dock's grey15, which rich's code bg matches
-  badge: 249, // grey70, on the rule's grey27
-  lamp: 179, // tungsten: the lamp's colour, for words set in Text
+  ground: '#222222', // the page
+  meta: '#666666', // the quietest words: cues
+  body: '#cccccc', // running text
+  quiet: '#888888', // running heads, eyebrows, the state word
+  question: '#999999', // frames the content: quotes, list marks, prompts
+  rule: '#444444', // hairlines
+  bright: '#dddddd',
+  brightest: '#eeeeee', // headings
+  link: '#888888',
+  code: '#dddddd', // inline code text
+  codeBg: '#333333', // a step above the page
+  badge: '#aaaaaa', // key chips, on the rule's grey
+  lamp: '#ddaa66', // tungsten, for the words that speak for the lamp
 } as const
 
 export type Line =

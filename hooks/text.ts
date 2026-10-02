@@ -3,8 +3,8 @@
 // the overflow cues know exactly how much is above and below.
 
 export type Style = {
-  color?: number
-  bg?: number
+  color?: string // #rrggbb
+  bg?: string
   bold?: boolean
   italic?: boolean
   underline?: boolean

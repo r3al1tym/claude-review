@@ -38,18 +38,20 @@ export function settleFrame(from: Page, to: Page, t: number): Uint32Array {
   return out
 }
 
-// The lamp. Working, it breathes low and slow; done, it holds soft; waiting
-// on you, it burns full. A change of state eases over LAMP_EASE_MS.
+// The lamp: how bright it burns is how much the session wants you. Working,
+// it is turned down to an ember that breathes slowly; done, it is up and
+// steady; waiting on you, it burns full. A change of state eases over
+// LAMP_EASE_MS.
 export type LampState = 'working' | 'done' | 'waiting'
 
 const BREATH_MS = 3600
 const LAMP_EASE_MS = 600
-const STEADY: Record<Exclude<LampState, 'working'>, number> = { done: 0.42, waiting: 1 }
+const STEADY: Record<Exclude<LampState, 'working'>, number> = { done: 0.86, waiting: 1 }
 
 export type Lamp = { state: LampState; since: number; from: number }
 
 const target = (state: LampState, t: number, since: number): number =>
-  state === 'working' ? 0.22 + 0.36 * (0.5 - 0.5 * Math.cos((2 * Math.PI * (t - since)) / BREATH_MS)) : STEADY[state]
+  state === 'working' ? 0.14 + 0.3 * (0.5 - 0.5 * Math.cos((2 * Math.PI * (t - since)) / BREATH_MS)) : STEADY[state]
 
 export function lampLevel(lamp: Lamp, t: number): number {
   const p = Math.min(1, Math.max(0, (t - lamp.since) / LAMP_EASE_MS))

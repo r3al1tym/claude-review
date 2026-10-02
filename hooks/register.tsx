@@ -189,9 +189,10 @@ function runLamp($: EngineInterface): void {
   if (!lampTimer) lampTimer = $.clock.every(50, () => void lampTick($))
 }
 
-// The body last drawn, as cells, and the reply it showed: a new reply settles
-// in from it. A settle runs `from` to `to` over settleMs.
-let drawnPage: { page: Page; seen: string } | null = null
+// The body last drawn, as cells, and the session's reply then: when the
+// reply changes under a following view, the new page settles in from it. A
+// settle runs `from` to `to` over settleMs.
+let drawnPage: { page: Page; sig: string } | null = null
 let settle: { from: Page; to: Page; start: number } | null = null
 let settleTimer: Timer | null = null
 
@@ -243,10 +244,12 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // the reply lands before the turn stops counting as working, so a dimmed
+  // answer settles straight into the new one, and the lamp comes up after
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    await update($, working, ids => ids.filter(id => id !== e.turnId))
     if (e.agentId === undefined && (await isOpen($))) await refresh($)
+    await update($, working, ids => ids.filter(id => id !== e.turnId))
 
     return result
   })
@@ -306,16 +309,19 @@ export const register: Register = (on, options) => {
       lamp = relight(lamp, lampState, now)
       lampAt = { columns: e.props.bodyColumns, column: columnOf(e.props.bodyColumns) }
 
+      // the reply as the snapshot has it, so the settle starts on the draw that
+      // first shows it; a key that moves the view changes no reply and is instant
+      const sig = replySig(snap)
       const following = isFollowing(snap, v)
       const paint = (page: Page): Uint32Array | null => {
         const before = drawnPage
-        drawnPage = { page, seen: v.seen }
+        drawnPage = { page, sig }
         if (settle && sameSize(settle.to, page)) {
           settle.to = page
           return settleFrame(settle.from, page, now - settle.start)
         }
         settle = null
-        if (!before || before.seen === v.seen || !following || v.help || !sameSize(before.page, page)) return null
+        if (!before || before.sig === sig || !following || v.help || !sameSize(before.page, page)) return null
         settle = { from: before.page, to: page, start: now }
         runSettle($)
         return settleFrame(before.page, page, 0)

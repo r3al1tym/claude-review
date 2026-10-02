@@ -303,8 +303,8 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
   const styled = (sp: Span): JSX.Element => {
     const st = sp.style ?? {}
     const props: Record<string, unknown> = {}
-    if (st.color !== undefined) props.color = `ansi256(${st.color})`
-    if (st.bg !== undefined) props.backgroundColor = `ansi256(${st.bg})`
+    if (st.color !== undefined) props.color = st.color
+    if (st.bg !== undefined) props.backgroundColor = st.bg
     if (st.bold) props.bold = true
     if (st.italic) props.italic = true
     if (st.underline) props.underline = true
@@ -312,8 +312,9 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
     const t = <Text {...props}>{sp.text}</Text>
     return st.href && isLink(st.href) ? <Link href={st.href}>{t}</Link> : t
   }
+  // an empty Text takes no row, so a blank row is drawn as one space
   const row = (spans: readonly Span[], indent: number): JSX.Element => (
-    <Text wrap="truncate-end">{' '.repeat(indent)}{spans.map(styled)}</Text>
+    <Text wrap="truncate-end">{' '.repeat(indent) || (spans.length === 0 ? ' ' : '')}{spans.map(styled)}</Text>
   )
 
   // the body as Text; consecutive rows of one code block draw as one panel
@@ -344,7 +345,8 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
         }
         const run: string[] = []
         while (k < group.length && !group[k]!.pad) {
-          run.push(clip(group[k]!.text, col.measure + 8))
+          // a blank line inside a block keeps its row
+          run.push(clip(group[k]!.text, col.measure + 8) || ' ')
           k += 1
         }
         const language = /^[\w+#.-]{1,24}$/.test(l.language) ? l.language : undefined
@@ -355,7 +357,7 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
       body.push(
         <Box flexDirection="row">
           {row(l.prefix, col.left)}
-          <Box flexDirection="column" width={Math.max(4, col.measure - preW)} paddingX={1} backgroundColor={`ansi256(${INK.codeBg})`}>
+          <Box flexDirection="column" width={Math.max(4, col.measure - preW)} paddingX={1} backgroundColor={INK.codeBg}>
             {parts}
           </Box>
         </Box>,
@@ -367,11 +369,11 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
   }
 
   const edge = maxScroll > 0
-    ? <Raster key="edge" columns={1} rows={bodyH} cells={encode(paintEdge(lines.map(markOf), bodyH, scroll, bodyH))} />
+    ? <Raster key="edge" columns={2} rows={bodyH} cells={encode(paintEdge(lines.map(markOf), bodyH, scroll, bodyH))} />
     : null
 
   const tree = (
-    <Box flexDirection="column">
+    <Box flexDirection="column" backgroundColor={INK.ground}>
       <Raster key="lamp" columns={W} rows={1} cells={encode(paintLamp(W, col, s.lamp))} />
       {row(headRow(s, surface, lines, scroll, col), 0)}
       <Box flexDirection="row">

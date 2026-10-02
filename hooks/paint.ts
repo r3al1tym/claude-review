@@ -1,35 +1,26 @@
-// The pane's light, painted as Raster cells in exact 24-bit colour: the lamp
-// over the text column, the fore-edge map, and the page itself whenever it
-// has to move (the settle) or sit dimmed. Text takes the 256-colour palette,
-// so every grey here is an xterm palette entry and a painted page lands on
-// exactly the colours its Text drawing shows.
+// The pane's light, painted as Raster cells: the lamp over the text column,
+// the fore-edge map, and the page itself whenever it has to move (the
+// settle) or sit dimmed. A Raster paints colours at 12 bits, so the palette
+// (INK) is 12-bit too, and a painted page lands on exactly what its Text
+// drawing shows.
 
 import { INK } from './markdown'
 import type { Line } from './markdown'
 import { cellsOf, clip, spanCells } from './text'
 import type { Span } from './text'
 
-export const GROUND = 0x262626 // the dock's ground, palette 235
-export const LAMP = 0xe2a65a // tungsten: the lamp, the pane's one colour
+export const rgb = (hex: string): number => Number.parseInt(hex.slice(1), 16)
 
-const BASIC = [
-  0x0c0c0c, 0xc50f1f, 0x13a10e, 0xc19c00, 0x0037da, 0x881798, 0x3a96dd, 0xcccccc,
-  0x767676, 0xe74856, 0x16c60c, 0xf9f1a5, 0x3b78ff, 0xb4009e, 0x61d6d6, 0xf2f2f2,
-]
-const LEVELS = [0, 95, 135, 175, 215, 255]
+export const GROUND = rgb(INK.ground)
+// The lamp dims as a tungsten filament does: full, it burns warm white;
+// lower, it goes amber and then a brown ember, short of the red that reads
+// as an error. Stops from 0 (dark) to 1 (full).
+const FILAMENT = [0x221a14, 0x553311, 0x995522, 0xdd8833, 0xffbb66]
 
-// A palette entry as RGB; the sixteen basic colours are the terminal's own,
-// so they read as Windows Terminal's defaults.
-export function xterm(n: number): number {
-  if (n >= 232) {
-    const v = 8 + 10 * (n - 232)
-    return (v << 16) | (v << 8) | v
-  }
-  if (n >= 16) {
-    const i = n - 16
-    return (LEVELS[Math.floor(i / 36)]! << 16) | (LEVELS[Math.floor(i / 6) % 6]! << 8) | LEVELS[i % 6]!
-  }
-  return BASIC[n] ?? BASIC[7]!
+export function lampColour(level: number): number {
+  const at = Math.max(0, Math.min(1, level)) * (FILAMENT.length - 1)
+  const i = Math.min(FILAMENT.length - 2, Math.floor(at))
+  return mix(FILAMENT[i]!, FILAMENT[i + 1]!, at - i)
 }
 
 export function mix(a: number, b: number, t: number): number {
@@ -70,8 +61,8 @@ export function encode(cells: Uint32Array): string {
 // paints as spaces (a Raster takes width-1 glyphs only), a control as one.
 function put(page: Page, y: number, x: number, end: number, spans: readonly Span[], ink: number, bg?: number): number {
   for (const sp of spans) {
-    const fg = mix(GROUND, xterm(sp.style?.color ?? INK.body), ink)
-    const back = mix(GROUND, sp.style?.bg !== undefined ? xterm(sp.style.bg) : (bg ?? GROUND), ink)
+    const fg = mix(GROUND, rgb(sp.style?.color ?? INK.body), ink)
+    const back = mix(GROUND, sp.style?.bg !== undefined ? rgb(sp.style.bg) : (bg ?? GROUND), ink)
     for (const ch of sp.text) {
       const cp = ch.codePointAt(0) ?? 0x20
       const w = cellsOf(cp)
@@ -104,19 +95,23 @@ export function paintPage(window: readonly Line[], col: Column, columns: number,
     const x0 = put(page, y, col.left, columns, l.prefix, ink)
     const width = Math.max(4, col.measure - spanCells(l.prefix))
     const end = Math.min(columns, x0 + width)
-    const panel = xterm(INK.codeBg)
+    const panel = rgb(INK.codeBg)
     put(page, y, x0, end, [{ text: ' '.repeat(width) }], ink, panel)
     if (!l.pad) put(page, y, x0 + 1, end - 1, [{ text: clip(l.text, width - 2), style: { color: INK.code } }], ink, panel)
   })
   return page
 }
 
-// The lamp: a half-cell line of light over the column, at `level` from the
-// ground (0) to full tungsten (1). Its ends are cut square.
+// The lamp: a line of light along the top edge of the column, cut square at
+// the column's ends. A quarter of a cell tall, it swells to half a cell as
+// it nears full, so waiting on you reads by its weight as well as its light.
 export function paintLamp(columns: number, col: Column, level: number): Uint32Array {
   const page = blankPage(columns, 1)
-  const light = mix(GROUND, LAMP, level)
-  for (let x = col.left; x < Math.min(columns, col.left + col.measure); x++) page.cells.set([0x2580, light, GROUND], x * 3)
+  const light = lampColour(level)
+  const eighths = Math.round(2 + 2 * Math.max(0, Math.min(1, (level - 0.86) / 0.14)))
+  // the top k eighths lit: the lower (8 - k) eighths block drawn in the ground
+  const cell = eighths === 4 ? [0x2580, light, GROUND] : [0x2581 + (7 - eighths), GROUND, light]
+  for (let x = col.left; x < Math.min(columns, col.left + col.measure); x++) page.cells.set(cell, x * 3)
   return page.cells
 }
 
@@ -127,25 +122,26 @@ const RANK: Record<Mark, number> = { blank: 0, text: 1, code: 2, head: 3 }
 export const markOf = (l: Line): Mark =>
   l.kind === 'code' ? 'code' : l.head !== undefined ? 'head' : l.spans.some(s => s.text.trim() !== '') ? 'text' : 'blank'
 
-// The fore-edge: the whole reply mapped onto `rows` cells, each showing the
-// strongest mark it covers. Prose is a thin rule, code a full block, a
-// heading a bright tick; the rows in view sit under the lamp.
+// The fore-edge, two cells wide: the whole reply mapped onto `rows` cells,
+// each showing the strongest mark it covers (prose a thin grey rule, code a
+// full block, a heading a bright tick), and beside it a thin bar of lamp
+// light along the rows in view.
 export function paintEdge(marks: readonly Mark[], rows: number, scroll: number, shown: number): Uint32Array {
-  const page = blankPage(1, rows)
+  const page = blankPage(2, rows)
   const n = Math.max(1, marks.length)
   const at = (i: number): number => Math.floor((i * n) / rows)
-  const lit0 = Math.floor((scroll * rows) / n)
-  const lit1 = Math.max(lit0 + 1, Math.ceil(((scroll + shown) * rows) / n))
+  const lit0 = Math.min(rows - 1, Math.floor((scroll * rows) / n))
+  const lit1 = Math.max(lit0 + 1, Math.round(((scroll + shown) * rows) / n))
+  const light = lampColour(0.86)
   for (let y = 0; y < rows; y++) {
     let mark: Mark = 'blank'
     for (let i = at(y); i < Math.max(at(y) + 1, at(y + 1)); i++) {
       const m = marks[i] ?? 'blank'
       if (RANK[m] > RANK[mark]) mark = m
     }
-    const lit = y >= lit0 && y < lit1
-    const base = { blank: GROUND, text: 0x585858, code: 0x4e4e4e, head: 0xc6c6c6 }[mark]
-    const fg = lit ? mix(mark === 'blank' ? GROUND : base, LAMP, mark === 'blank' ? 0.34 : 0.62) : base
-    page.cells.set([mark === 'code' ? 0x2588 : 0x2590, fg, GROUND], y * 3)
+    const ink = { blank: GROUND, text: 0x555555, code: 0x444444, head: 0xcccccc }[mark]
+    page.cells.set([mark === 'code' ? 0x2588 : 0x2590, ink, GROUND], y * 6)
+    if (y >= lit0 && y < lit1) page.cells.set([0x258e, light, GROUND], y * 6 + 3)
   }
   return page.cells
 }
