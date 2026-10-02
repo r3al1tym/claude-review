@@ -165,29 +165,13 @@ export function lampSpans(cells: Uint32Array): Span[] {
   return out
 }
 
-// What one row of the reply is, for the fore-edge.
-export type Mark = 'blank' | 'text' | 'code' | 'head'
-
-export const markOf = (l: Line): Mark =>
-  l.kind === 'code' ? 'code' : l.head !== undefined ? 'head' : l.spans.some(s => s.text.trim() !== '') ? 'text' : 'blank'
-
 // The fore-edge, a scrollbar a cell in from the pane's edge: a thin grey bar
-// beside the rows in view, notched brighter where a section starts within
-// them. Grey throughout, so the lamp stays the page's only light.
-export function paintEdge(marks: readonly Mark[], rows: number, scroll: number, shown: number): Uint32Array {
+// beside the rows in view, grey so the lamp stays the page's only light.
+export function paintEdge(total: number, rows: number, scroll: number, shown: number): Uint32Array {
   const page = blankPage(2, rows)
-  const n = Math.max(1, marks.length)
-  const at = (i: number): number => Math.floor((i * n) / rows)
+  const n = Math.max(1, total)
   const lit0 = Math.min(rows - 1, Math.floor((scroll * rows) / n))
   const lit1 = Math.max(lit0 + 1, Math.round(((scroll + shown) * rows) / n))
-  for (let y = 0; y < rows; y++) {
-    const lit = y >= lit0 && y < lit1
-    // a section starts in this cell when a heading's first row falls in it
-    let starts = false
-    for (let i = at(y); i < Math.max(at(y) + 1, at(y + 1)); i++) {
-      if (marks[i] === 'head' && marks[i - 1] !== 'head') starts = true
-    }
-    if (lit) page.cells.set([0x258e, starts ? 0xaaaaaa : 0x666666, GROUND], y * 6 + 3)
-  }
+  for (let y = lit0; y < Math.min(rows, lit1); y++) page.cells.set([0x258e, 0x666666, GROUND], y * 6 + 3)
   return page.cells
 }

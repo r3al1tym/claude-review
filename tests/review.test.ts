@@ -46,7 +46,7 @@ function fakePanes(on: On): void {
   on('ui.panes', () => ({ value: [...open.values()] }))
 }
 
-// the lamp and the settle run on the clock and paint by blits; a test holds
+// the lamp redraws on the clock and the settle paints by blits; a test holds
 // the clock and keeps every blit
 function light(on: On, env: Record<string, string> = { COLORTERM: 'truecolor' }) {
   mock.env(on, env)
@@ -60,6 +60,10 @@ function light(on: On, env: Record<string, string> = { COLORTERM: 'truecolor' })
 }
 
 const SETTLED = 1000 // past the longest settle
+
+// the lamp row: a Text of block glyphs at the top of the pane
+const lampText = (ui: { find: (q: { type: string; text: RegExp }) => Promise<{ text: string; children: unknown[] } | undefined> }) =>
+  ui.find({ type: 'Text', text: /[▀▁-▆▔]{10}/ })
 
 // one row of a Raster's cells, as text
 function rowText(cells: string, columns: number, row: number): string {
@@ -328,22 +332,37 @@ test('a new reply settles in: the page paints as cells, then lands as Text', asy
 
   const ui = await mountTerminal($)
   expect(await ui.find({ type: 'Text', text: 'The first answer.' })).toBeDefined()
-  messages = [...messages, prompt('second ask'), reply('The second answer.')]
+  messages = [...messages, prompt('second ask'), reply('The second answer, with `code` in it.')]
   await $.turn.complete(turnEnd)
-  expect(await ui.find({ type: 'Raster', key: 'page' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'The second answer.' })).toBeUndefined()
+  const raster = await ui.find({ type: 'Raster', key: 'page' }) as unknown as { props: { columns: number } } | undefined
+  expect(raster).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'The second answer, with code in it.' })).toBeUndefined()
 
   await clock.advance(300)
-  expect(blits.some(b => b.key === 'page')).toBe(true)
+  const frames = blits.filter(b => b.key === 'page')
+  expect(frames.length).toBeGreaterThan(0)
+  // a line arrives and leaves whole: in every frame a row's glyphs all show, or none do
+  const columns = raster!.props.columns
+  for (const f of frames) {
+    const w = new Uint32Array(Uint8Array.from(atob(f.cells), c => c.charCodeAt(0)).buffer)
+    for (let y = 0; y < w.length / (columns * 3); y++) {
+      const shows = new Set<boolean>()
+      for (let x = 0; x < columns; x++) {
+        const i = (y * columns + x) * 3
+        if (w[i] !== 0x20) shows.add(w[i + 1] !== 0x222222)
+      }
+      expect(shows.size).toBeLessThan(2)
+    }
+  }
   await clock.advance(SETTLED)
   expect(await ui.find({ type: 'Raster', key: 'page' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: 'The second answer.' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'The second answer, with code in it.' })).toBeDefined()
   await ui.unmount()
 })
 
 test('while a new prompt runs, the last answer stays on the page, dimmed, and the lamp breathes', async ($, on) => {
   fakePanes(on)
-  const { clock, blits } = light(on)
+  const { clock } = light(on)
   on('session.messages', () => ({ value: [prompt('first ask'), reply('The first answer.'), prompt('second ask')] }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   await $.command.run(TOGGLE)
@@ -358,10 +377,11 @@ test('while a new prompt runs, the last answer stays on the page, dimmed, and th
   expect(words.every(w => w.props.color === '#777777')).toBe(true)
   expect(await ui.find({ type: 'Text', text: /^working/ })).toBeDefined()
 
-  await clock.advance(400)
-  const lamp = blits.filter(b => b.key === 'lamp')
-  expect(lamp.length).toBeGreaterThan(3)
-  expect(new Set(lamp.map(b => b.cells)).size).toBeGreaterThan(1) // the light moves
+  // the ember breathes: redrawn a moment later, its light has moved
+  const before = JSON.stringify((await lampText(ui))?.children)
+  await clock.advance(900)
+  await ui.redraw()
+  expect(JSON.stringify((await lampText(ui))?.children)).not.toBe(before)
   await ui.unmount()
 })
 
@@ -383,18 +403,29 @@ test('a long new prompt wraps to three rows over the dimmed answer, the last cut
 
 test('in a 256-colour terminal the lamp keeps palette colours and breathes by its weight', async ($, on) => {
   fakePanes(on)
-  const { clock, blits } = light(on, { COLORTERM: 'truecolor', TMUX: '/tmp/tmux-1000/default,1,0' })
+  const { clock } = light(on, { COLORTERM: 'truecolor', TMUX: '/tmp/tmux-1000/default,1,0' })
   on('session.messages', () => ({ value: [prompt('first ask'), reply('The first answer.'), prompt('second ask')] }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   await $.command.run(TOGGLE)
   await $.turn.start({ text: 'second ask', turnId: 'main' })
   const ui = await mountTerminal($)
 
-  await clock.advance(2000)
-  const words = (cells: string) => new Uint32Array(Uint8Array.from(atob(cells), c => c.charCodeAt(0)).buffer)
-  const lit = blits.filter(b => b.key === 'lamp').map(b => words(b.cells).slice(120, 123)) // the ember, at the centre
-  expect(new Set(lit.map(w => w[0])).size).toBeGreaterThan(1) // the glyph, so the weight, changes
-  expect(lit.every(w => w[1] === 0x875f00 || w[2] === 0x875f00)).toBe(true) // one palette brown throughout
+  // across a breath, sampled at the ember's centre (cell 40 of 80)
+  const glyphs = new Set<string>()
+  const inks = new Set<string>()
+  for (let k = 0; k < 8; k++) {
+    await clock.advance(450)
+    await ui.redraw()
+    const lamp = await lampText(ui)
+    glyphs.add([...(lamp?.text ?? '')][40] ?? '')
+    for (const c of lamp?.children ?? []) {
+      if (typeof c !== 'object' || c === null || !('props' in c)) continue
+      const props = (c as { props: Record<string, unknown> }).props
+      for (const ink of [props.color, props.backgroundColor]) if (ink !== '#222222') inks.add(String(ink))
+    }
+  }
+  expect(glyphs.size).toBeGreaterThan(1) // the glyph, so the weight, changes
+  expect([...inks]).toEqual(['#875f00']) // one palette brown throughout
   await ui.unmount()
 })
 

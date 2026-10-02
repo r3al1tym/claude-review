@@ -297,8 +297,18 @@ function prefixed(lines: Line[], first: Span[], rest: Span[]): Line[] {
 
 let blockSeq = 0
 
+// The lamp redraws the pane many times a second while it moves, so a reply is
+// laid out once per width and the drawing reuses it. Lines are never mutated.
+const laidOut = new Map<string, Line[]>()
+
 export function layout(src: string, width: number): Line[] {
-  return stack(parse(src), Math.max(8, width), { color: INK.body }, false)
+  const key = `${width}\u0000${src}`
+  const hit = laidOut.get(key)
+  if (hit) return hit
+  const lines = stack(parse(src), Math.max(8, width), { color: INK.body }, false)
+  if (laidOut.size >= 16) laidOut.delete(laidOut.keys().next().value!)
+  laidOut.set(key, lines)
+  return lines
 }
 
 // Blocks sit a blank row apart, except a list right under its line inside a

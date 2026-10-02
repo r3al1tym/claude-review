@@ -33,12 +33,41 @@ export const SETTLE_MS = SINK_MS + STAGGER_SPAN_MS + RISE_MS
 const easeIn = (p: number): number => p * p
 const easeOut = (p: number): number => 1 - (1 - p) ** 3
 
+// A painted cell shows nothing short of one 12-bit step off the ground, and a
+// bright word crosses that step before a dim one. So a line enters at one step
+// toward its inks, every cell in the same frame, and an old line holds at one
+// step until the moment it goes: lines arrive and leave whole, never word by word.
+const STEP = 17
+
+function toward(c: number, from = GROUND): number {
+  const ch = (sh: number): number => {
+    const g = (from >> sh) & 0xff
+    const d = ((c >> sh) & 0xff) - g
+    return (g + Math.sign(d) * Math.min(STEP, Math.abs(d))) << sh
+  }
+  return ch(16) | ch(8) | ch(0)
+}
+
+// an old cell sinking: toward the ground, held a step above it until the end
+function sunk(c: number, k: number): number {
+  if (k >= 1) return GROUND
+  const m = mix(c, GROUND, k)
+  const floor = toward(c)
+  const ch = (sh: number): number => {
+    const g = (GROUND >> sh) & 0xff
+    const x = (m >> sh) & 0xff
+    const f = (floor >> sh) & 0xff
+    return (Math.abs(x - g) < Math.abs(f - g) ? f : x) << sh
+  }
+  return ch(16) | ch(8) | ch(0)
+}
+
 // A line's ink while it rises: out of the ground into the lamp's warmth by
 // the first third, then cooling to its own colour. A 256-colour terminal has
 // no warm greys (the nearest are pinks), so there the line rises cool.
 function lit(ink: number, p: number, warmth: number): number {
   const warm = mix(ink, tint(ink), warmth)
-  return p < 1 / 3 ? mix(GROUND, warm, easeOut(p * 3)) : mix(warm, ink, easeOut((p - 1 / 3) * 1.5))
+  return p < 1 / 3 ? mix(toward(warm), warm, easeOut(p * 3)) : mix(warm, ink, easeOut((p - 1 / 3) * 1.5))
 }
 
 // Rows rise by unit: a code block's rows as one panel, every other row on
@@ -72,10 +101,11 @@ export function settleFrame(from: Page, to: Page, t: number, deep = true): Uint3
       if (same || t >= start + RISE_MS) {
         out.set(to.cells.subarray(i, i + 3), i)
       } else if (t < start) {
-        out.set([from.cells[i]!, mix(from.cells[i + 1]!, GROUND, sink), mix(from.cells[i + 2]!, GROUND, sink)], i)
+        out.set([from.cells[i]!, sunk(from.cells[i + 1]!, sink), sunk(from.cells[i + 2]!, sink)], i)
       } else {
         const p = (t - start) / RISE_MS
-        out.set([to.cells[i]!, lit(to.cells[i + 1]!, p, deep ? WARMTH : 0), mix(GROUND, to.cells[i + 2]!, easeOut(p))], i)
+        const bg = to.cells[i + 2]!
+        out.set([to.cells[i]!, lit(to.cells[i + 1]!, p, deep ? WARMTH : 0), mix(toward(bg), bg, easeOut(p))], i)
       }
     }
   }
@@ -110,6 +140,9 @@ export function lampLight(lamp: Lamp, t: number): Light {
   const open = 1 - (1 - p) ** 3
   return { level: lamp.from.level + (to.level - lamp.from.level) * light, span: lamp.from.span + (to.span - lamp.from.span) * open }
 }
+
+// The lamp eases for LAMP_EASE_MS after a change of state.
+export const lampEasing = (lamp: Lamp, t: number): boolean => t - lamp.since < LAMP_EASE_MS
 
 // The lamp moves while it breathes or eases; otherwise it holds still.
 export const lampMoving = (lamp: Lamp, t: number): boolean => lamp.state === 'working' || t - lamp.since < LAMP_EASE_MS

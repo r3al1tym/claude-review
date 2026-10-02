@@ -10,7 +10,7 @@ import type { ElementTable } from 'claude-code'
 import type { ReviewTask, ReviewTurn, ReviewView } from '../types'
 import { INK, layout } from './markdown'
 import type { Line } from './markdown'
-import { GROUND, encode, exact, hex, lampSpans, markOf, mix, paintEdge, paintLamp, paintPage, rgb } from './paint'
+import { GROUND, encode, exact, hex, lampSpans, mix, paintEdge, paintLamp, paintPage, rgb } from './paint'
 import { held } from './motion'
 import type { Light } from './motion'
 import type { Column, Page } from './paint'
@@ -43,9 +43,8 @@ export type ScreenInput = {
   prompt: string | null
   // the last answer, dimmed under a new prompt that has no reply yet
   dim: boolean
-  // the lamp's light now, whether it holds still, and whether the terminal paints true colour
+  // the lamp's light now, and whether the terminal paints true colour
   lamp: Light
-  still: boolean
   deep: boolean
   // what the session waits on the person for
   waiting: 'plan' | 'question' | null
@@ -350,7 +349,7 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
   const dimmed = (y: number): boolean => s.dim && scroll + y >= lead.length
   const inks = [1, ...window.map((_, y) => (dimmed(y) ? DIM : 1))]
   // the fore-edge sits beside the body rows, under the head row's spacer
-  const marks = maxScroll > 0 ? paintEdge(lines.map(markOf), bodyH, scroll, bodyH) : null
+  const marks = maxScroll > 0 ? paintEdge(lines.length, bodyH, scroll, bodyH) : null
   const page = { ...paintPage([textLine(head), ...window], col, W, bodyH + 1, inks), edge: W - bodyW }
   if (marks) for (let y = 0; y < bodyH; y++) page.cells.set(marks.subarray(y * 6, y * 6 + 6), ((y + 1) * W + bodyW) * 3)
   const painted = paint?.(page) ?? null
@@ -420,10 +419,7 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
 
   const tree = (
     <Box flexDirection="column" backgroundColor={INK.ground}>
-      {s.still
-        // still, the lamp is Text at full colour depth; moving, a Raster the timer repaints
-        ? row(lampSpans(paintLamp(W, col, s.lamp, s.deep)), 0)
-        : <Raster key="lamp" columns={W} rows={1} cells={encode(paintLamp(W, col, s.lamp, s.deep))} />}
+      {row(lampSpans(paintLamp(W, col, s.lamp, s.deep)), 0)}
       {painted
         // a settle paints the body and its fore-edge as one grid, so the edge rises with its rows
         ? <Raster key="page" columns={W} rows={bodyH + 1} cells={encode(painted)} />

@@ -2,11 +2,11 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, UiPressArgument } from 'claude-code'
 
 import type { ReviewSnapshot, ReviewTurn, ReviewView } from '../types'
-import { SETTLE_MS, lampLight, lampMoving, relight, settleFrame } from './motion'
+import { SETTLE_MS, lampEasing, lampLight, lampMoving, relight, settleFrame } from './motion'
 import type { Lamp, LampState } from './motion'
-import { encode, paintLamp } from './paint'
-import type { Column, Page } from './paint'
-import { columnOf, screen, surfacesFor } from './screen'
+import { encode } from './paint'
+import type { Page } from './paint'
+import { screen, surfacesFor } from './screen'
 import type { Facts, Laid } from './screen'
 import { buildSnapshot, hasReply, replySig } from './transcript'
 
@@ -164,12 +164,13 @@ const hotkey = (k: string): string => `key-${k}`
 
 // ---------------------------------------------------------------- light
 
-// The lamp and the settle move by blits between draws: a timer repaints their
-// Rasters at frame rate and stops when the motion ends or the pane is gone.
+// The lamp moves by redraws: it is Text at full colour depth (a Raster paints
+// at 12 bits, which shows as steps along the filament), so while it eases or
+// breathes a timer asks the pane to draw again, and stops when the lamp holds
+// still or the pane is gone. The settle moves by blits of its page Raster.
 type Timer = { cancel: () => void }
 
 let lamp: Lamp | null = null
-let lampAt: { columns: number; column: Column; deep: boolean } | null = null
 
 // Claude Code paints 256 colours under tmux or without COLORTERM=truecolor;
 // read once a load, a guess the lamp needs only for how it breathes.
@@ -180,26 +181,30 @@ async function trueColour($: EngineInterface): Promise<boolean> {
   return /^(truecolor|24bit)$/i.test(colorterm) && tmux === ''
 }
 let lampTimer: Timer | null = null
+let lampEvery = 0
 
 function stopLamp(): void {
   lampTimer?.cancel()
   lampTimer = null
 }
 
+// an ease runs at 20 frames a second; a breath is slow, and 10 carry it
 async function lampTick($: EngineInterface): Promise<void> {
   const t = await $.clock.now()
-  if (!lamp || !lampAt) return stopLamp()
-  const cells = encode(paintLamp(lampAt.columns, lampAt.column, lampLight(lamp, t), lampAt.deep))
-  const res = await $.ui.blit({ requestId: PANE, key: 'lamp', cells })
-  if (res.deny) return stopLamp()
-  if (!lampMoving(lamp, t)) {
+  if (!lamp || !(await isOpen($))) return stopLamp()
+  $.ui.invalidate('ui.render')
+  if (!lampMoving(lamp, t)) return stopLamp()
+  const every = lampEasing(lamp, t) ? 50 : 100
+  if (every !== lampEvery) {
     stopLamp()
-    $.ui.invalidate('ui.render') // the lamp at rest draws as Text, at full colour depth
+    runLamp($, every)
   }
 }
 
-function runLamp($: EngineInterface): void {
-  if (!lampTimer) lampTimer = $.clock.every(50, () => void lampTick($))
+function runLamp($: EngineInterface, every = 50): void {
+  if (lampTimer) return
+  lampEvery = every
+  lampTimer = $.clock.every(every, () => void lampTick($))
 }
 
 // The body last drawn, as cells, and the session's reply then: when the
@@ -326,7 +331,6 @@ export const register: Register = (on, options) => {
       const lampState: LampState = waiting ? 'waiting' : busy ? 'working' : 'done'
       lamp = relight(lamp, lampState, now)
       deep ??= await trueColour($)
-      lampAt = { columns: e.props.bodyColumns, column: columnOf(e.props.bodyColumns), deep }
 
       // the reply as the snapshot has it, so the settle starts on the draw that
       // first shows it; a key that moves the view changes no reply and is instant
@@ -363,7 +367,6 @@ export const register: Register = (on, options) => {
         prompt,
         dim,
         lamp: lampLight(lamp, now),
-        still: !lampMoving(lamp, now),
         deep,
         waiting,
       }, paint)
