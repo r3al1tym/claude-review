@@ -202,7 +202,15 @@ export function stateOf(s: Pick<ScreenInput, 'view' | 'waiting' | 'working' | 't
 // The row under the lamp: what waits on you, why the page is dim, the
 // section in view, or which earlier turn this is; blank when none applies.
 // It belongs to the page, so it settles and dims with it.
-function headRow(s: ScreenInput, surface: Surface, lines: readonly Line[], scroll: number, col: Column): Span[] {
+// The eyebrow over what waits on you, when the surface shown is that thing.
+function waitingFor(s: ScreenInput, surface: Surface): string | null {
+  if (s.view.help || s.waiting === null) return null
+  if (surface.label === 'question' && s.waiting === 'question') return 'Waiting for your answer'
+  if (surface.label === 'plan' && s.turn.planWaiting && s.waiting === 'plan') return 'Waiting for your approval'
+  return null
+}
+
+function headRow(s: ScreenInput, surface: Surface, lines: readonly Line[], scroll: number, col: Column, lifted: boolean): Span[] {
   // what waits on you reads from the left; where you are, from the right
   const at = (text: string, style: Style): Span[] => [{ text: clip(text, col.measure), style }]
   const where = (text: string): Span[] => {
@@ -210,8 +218,8 @@ function headRow(s: ScreenInput, surface: Surface, lines: readonly Line[], scrol
     return [{ text: ' '.repeat(col.measure - cells(t)) }, { text: t, style: { color: INK.quiet, italic: true } }]
   }
   if (s.view.help) return []
-  if (surface.label === 'question' && s.waiting === 'question') return at('Waiting for your answer', { color: INK.lamp })
-  if (surface.label === 'plan' && s.turn.planWaiting && s.waiting === 'plan') return at('Waiting for your approval', { color: INK.lamp })
+  const ask = waitingFor(s, surface)
+  if (ask && !lifted) return at(ask, { color: INK.lamp })
   if (s.dim) return at('Previous answer', { color: INK.quiet, italic: true })
   // a section's own heading at the top of the view needs no running head
   const top = lines[scroll]
@@ -300,9 +308,13 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
     : []
   // what waits on you sits a third of the way down, where the eye rests,
   // when it is short enough to leave the room
-  const waits = !s.view.help && s.waiting !== null && (surface.label === 'question' || (surface.label === 'plan' && s.turn.planWaiting))
-  const room = bodyH - lead.length - content.length - 1
-  const lift = waits && room > 2 ? Array.from({ length: Math.floor(room / 3) }, blank) : []
+  // and its eyebrow travels with it
+  const ask = waitingFor(s, surface)
+  const room = bodyH - lead.length - content.length - 2
+  const lifted = ask !== null && room > 2
+  const lift = lifted
+    ? [...Array.from({ length: Math.floor(room / 3) }, blank), textLine([{ text: ask, style: { color: INK.lamp } }])]
+    : []
   const lines = [...lift, ...lead, ...content, blank()]
 
   const maxScroll = Math.max(0, lines.length - bodyH)
@@ -310,7 +322,7 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
   const window = lines.slice(scroll, scroll + bodyH)
 
   // the page is the head row and the body window, as one grid of cells
-  const head = headRow(s, surface, lines, scroll, col)
+  const head = headRow(s, surface, lines, scroll, col, lifted)
   const dimmed = (y: number): boolean => s.dim && scroll + y >= lead.length
   const inks = [1, ...window.map((_, y) => (dimmed(y) ? DIM : 1))]
   const page = paintPage([textLine(head), ...window], col, bodyW, bodyH + 1, inks)
