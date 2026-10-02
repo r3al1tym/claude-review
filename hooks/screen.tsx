@@ -10,7 +10,7 @@ import type { ElementTable } from 'claude-code'
 import type { ReviewTask, ReviewTurn, ReviewView } from '../types'
 import { INK, layout } from './markdown'
 import type { Line } from './markdown'
-import { encode, markOf, paintEdge, paintLamp, paintPage } from './paint'
+import { GROUND, encode, hex, markOf, mix, paintEdge, paintLamp, paintPage, rgb } from './paint'
 import type { Light } from './motion'
 import type { Column, Page } from './paint'
 import { cells, clip, oneline, spanCells, wrap } from './text'
@@ -212,7 +212,7 @@ function headRow(s: ScreenInput, surface: Surface, lines: readonly Line[], scrol
   if (s.view.help) return []
   if (surface.label === 'question' && s.waiting === 'question') return at('Waiting for your answer', { color: INK.lamp })
   if (surface.label === 'plan' && s.turn.planWaiting && s.waiting === 'plan') return at('Waiting for your approval', { color: INK.lamp })
-  if (s.dim) return at('The last answer, until the new one lands', { color: INK.quiet, italic: true })
+  if (s.dim) return at('Previous answer', { color: INK.quiet, italic: true })
   // a section's own heading at the top of the view needs no running head
   const top = lines[scroll]
   if (scroll > 0 && !(top?.kind === 'text' && top.head !== undefined)) {
@@ -298,7 +298,12 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
   const lead = !s.view.help && s.prompt
     ? [textLine([{ text: clip(`› ${oneline(s.prompt)}`, col.measure), style: { color: s.dim ? INK.bright : INK.question } }]), blank()]
     : []
-  const lines = [...lead, ...content, blank()]
+  // what waits on you sits a third of the way down, where the eye rests,
+  // when it is short enough to leave the room
+  const waits = !s.view.help && s.waiting !== null && (surface.label === 'question' || (surface.label === 'plan' && s.turn.planWaiting))
+  const room = bodyH - lead.length - content.length - 1
+  const lift = waits && room > 2 ? Array.from({ length: Math.floor(room / 3) }, blank) : []
+  const lines = [...lift, ...lead, ...content, blank()]
 
   const maxScroll = Math.max(0, lines.length - bodyH)
   const scroll = Math.max(0, Math.min(s.view.scroll, maxScroll))
@@ -306,9 +311,12 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
 
   // the page is the head row and the body window, as one grid of cells
   const head = headRow(s, surface, lines, scroll, col)
-  const inks = [1, ...window.map((_, y) => (s.dim && scroll + y >= lead.length ? DIM : 1))]
+  const dimmed = (y: number): boolean => s.dim && scroll + y >= lead.length
+  const inks = [1, ...window.map((_, y) => (dimmed(y) ? DIM : 1))]
   const page = paintPage([textLine(head), ...window], col, bodyW, bodyH + 1, inks)
-  const painted = paint?.(page) ?? (s.dim ? page.cells : null)
+  const painted = paint?.(page) ?? null
+  const dimInk = (color: string): string => hex(mix(GROUND, rgb(color), DIM))
+  const dim = (spans: readonly Span[]): Span[] => spans.map(sp => ({ ...sp, style: { ...sp.style, color: dimInk(sp.style?.color ?? INK.body) } }))
 
   const styled = (sp: Span): JSX.Element => {
     const st = sp.style ?? {}
@@ -334,7 +342,7 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
     for (; i < window.length;) {
       const l = window[i]!
       if (l.kind === 'text') {
-        body.push(row(l.spans, col.left))
+        body.push(row(dimmed(i) ? dim(l.spans) : l.spans, col.left))
         i += 1
         continue
       }
@@ -360,7 +368,9 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
           k += 1
         }
         const language = /^[\w+#.-]{1,24}$/.test(l.language) ? l.language : undefined
-        parts.push(run.some(r => r.trim() !== '')
+        // dimmed, a block keeps its panel and drops its syntax colours
+        if (s.dim) parts.push(<Box flexDirection="column">{run.map(r => <Text color={dimInk(INK.code)} wrap="truncate-end">{r}</Text>)}</Box>)
+        else parts.push(run.some(r => r.trim() !== '')
           ? <Code source={run.join('\n')} wrap="truncate-end" {...(language ? { language } : {})} />
           : <Box flexDirection="column">{run.map(() => <Text> </Text>)}</Box>)
       }

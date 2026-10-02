@@ -303,10 +303,12 @@ test('while a new prompt runs, the last answer stays on the page, dimmed, and th
 
   await $.turn.start({ text: 'second ask', turnId: 'main' })
   const ui = await mountTerminal($)
-  // the dimmed page is cells: its head row says why, the prompt leads the body
-  const page = await ui.find({ type: 'Raster', key: 'page' }) as { props: { columns: number; cells: string } } | undefined
-  expect(rowText(page!.props.cells, page!.props.columns, 0).trim()).toBe('The last answer, until the new one lands')
-  expect(rowText(page!.props.cells, page!.props.columns, 1).trim()).toBe('› second ask')
+  // the head row says what the page is, the new prompt leads, the answer sits dimmed below
+  expect(await ui.find({ type: 'Text', text: 'Previous answer' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '› second ask' })).toBeDefined()
+  const answer = await ui.find({ type: 'Text', text: 'The first answer.' })
+  const words = (answer?.children ?? []).filter((c): c is { props: Record<string, unknown> } => typeof c === 'object')
+  expect(words.every(w => w.props.color === '#777777')).toBe(true)
   expect(await ui.find({ type: 'Text', text: /^working/ })).toBeDefined()
 
   await clock.advance(400)
@@ -342,7 +344,7 @@ test('the lamp gathers into an ember while Claude works and opens across the col
   await $.command.run(TOGGLE)
   const ui = await mountTerminal($)
   const lampRow = async () => {
-    const lamp = await ui.find({ type: 'Raster', key: 'lamp' }) as { props: { columns: number; cells: string } }
+    const lamp = await ui.find({ type: 'Raster', key: 'lamp' }) as unknown as { props: { columns: number; cells: string } }
     return rowText(lamp.props.cells, lamp.props.columns, 0)
   }
   // 80 columns: the column is cells 4 to 75, the ember the middle ten

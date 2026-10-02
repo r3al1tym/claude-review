@@ -19,11 +19,11 @@ export function renderQuestion(input: Record<string, unknown>): string | null {
     const lines: string[] = []
     if (str(header)) lines.push(`### ${str(header)}`)
     if (str(question)) lines.push(str(question)!)
-    for (const op of Array.isArray(options) ? options : []) {
-      const { label, description } = (typeof op === 'object' && op !== null ? op : { label: op }) as Record<string, unknown>
-      if (str(label) && str(description)) lines.push(`- **${str(label)}**: ${str(description)}`)
-      else if (str(label)) lines.push(`- **${str(label)}**`)
-    }
+    // numbered as Claude Code numbers them, so an option here is the key there
+    const list = (Array.isArray(options) ? options : []).map(op => (typeof op === 'object' && op !== null ? op : { label: op }) as Record<string, unknown>)
+    list.filter(op => str(op.label)).forEach((op, n) => {
+      lines.push(str(op.description) ? `${n + 1}. **${str(op.label)}**: ${str(op.description)}` : `${n + 1}. **${str(op.label)}**`)
+    })
     if (multiSelect === true) lines.push('_(select all that apply)_')
     return [lines.join('\n\n')]
   })

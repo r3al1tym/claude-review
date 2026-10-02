@@ -12,6 +12,11 @@ import type { Span } from './text'
 
 export const rgb = (hex: string): number => Number.parseInt(hex.slice(1), 16)
 
+// A colour as Text takes it, snapped to 12 bits as a Raster paints it, so a
+// dimmed Text page and its painted cells are the same colour.
+export const hex = (n: number): string =>
+  `#${[16, 8, 0].map(sh => (Math.round(((n >> sh) & 0xff) / 17) * 17).toString(16).padStart(2, '0')).join('')}`
+
 export const GROUND = rgb(INK.ground)
 // The lamp dims as a tungsten filament does: full, it burns warm white;
 // lower, it goes amber and then a brown ember, short of the red that reads
@@ -63,7 +68,8 @@ export function encode(cells: Uint32Array): string {
 function put(page: Page, y: number, x: number, end: number, spans: readonly Span[], ink: number, bg?: number): number {
   for (const sp of spans) {
     const fg = mix(GROUND, rgb(sp.style?.color ?? INK.body), ink)
-    const back = mix(GROUND, sp.style?.bg !== undefined ? rgb(sp.style.bg) : (bg ?? GROUND), ink)
+    // a dimmed page dims its ink; a code panel keeps its ground, so the block still reads as one
+    const back = sp.style?.bg !== undefined ? mix(GROUND, rgb(sp.style.bg), ink) : (bg ?? GROUND)
     for (const ch of sp.text) {
       const cp = ch.codePointAt(0) ?? 0x20
       const w = cellsOf(cp)
@@ -125,7 +131,13 @@ export function paintLamp(columns: number, col: Column, light: Light, deep = tru
   const ember = Math.min(EMBER, col.measure)
   const lit = Math.round(ember + (col.measure - ember) * Math.max(0, Math.min(1, light.span)))
   const x0 = col.left + Math.floor((col.measure - lit) / 2)
-  for (let x = x0; x < Math.min(columns, x0 + lit); x++) page.cells.set(cell, x * 3)
+  for (let x = x0; x < Math.min(columns, x0 + lit); x++) {
+    // a filament: hottest at the centre, cooling along the filament curve to
+    // the ends, each cell its own colour and nothing outside the line lit
+    const d = Math.abs(x + 0.5 - (x0 + lit / 2)) / Math.max(1, lit / 2)
+    const c = deep ? lampColour(level * (1 - 0.42 * d * d)) : colour
+    page.cells.set(cell[1] === GROUND ? [cell[0]!, GROUND, c] : [cell[0]!, c, GROUND], x * 3)
+  }
   return page.cells
 }
 
