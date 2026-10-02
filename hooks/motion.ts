@@ -34,9 +34,10 @@ const easeIn = (p: number): number => p * p
 const easeOut = (p: number): number => 1 - (1 - p) ** 3
 
 // A line's ink while it rises: out of the ground into the lamp's warmth by
-// the first third, then cooling to its own colour.
-function lit(ink: number, p: number): number {
-  const warm = mix(ink, tint(ink), WARMTH)
+// the first third, then cooling to its own colour. A 256-colour terminal has
+// no warm greys (the nearest are pinks), so there the line rises cool.
+function lit(ink: number, p: number, warmth: number): number {
+  const warm = mix(ink, tint(ink), warmth)
   return p < 1 / 3 ? mix(GROUND, warm, easeOut(p * 3)) : mix(warm, ink, easeOut((p - 1 / 3) * 1.5))
 }
 
@@ -58,7 +59,7 @@ function riseStarts(to: Page): number[] {
   return units.map(u => (above = place.has(u) ? SINK_MS + step * place.get(u)! : above))
 }
 
-export function settleFrame(from: Page, to: Page, t: number): Uint32Array {
+export function settleFrame(from: Page, to: Page, t: number, deep = true): Uint32Array {
   const out = new Uint32Array(to.cells.length)
   const rowLen = to.columns * 3
   const sink = easeIn(Math.min(1, t / SINK_MS))
@@ -74,7 +75,7 @@ export function settleFrame(from: Page, to: Page, t: number): Uint32Array {
         out.set([from.cells[i]!, mix(from.cells[i + 1]!, GROUND, sink), mix(from.cells[i + 2]!, GROUND, sink)], i)
       } else {
         const p = (t - start) / RISE_MS
-        out.set([to.cells[i]!, lit(to.cells[i + 1]!, p), mix(GROUND, to.cells[i + 2]!, easeOut(p))], i)
+        out.set([to.cells[i]!, lit(to.cells[i + 1]!, p, deep ? WARMTH : 0), mix(GROUND, to.cells[i + 2]!, easeOut(p))], i)
       }
     }
   }

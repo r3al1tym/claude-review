@@ -215,7 +215,7 @@ function endSettle($: EngineInterface): void {
 async function settleTick($: EngineInterface): Promise<void> {
   const t = await $.clock.now()
   if (!settle || t - settle.start >= SETTLE_MS) return endSettle($)
-  const cells = encode(settleFrame(settle.from, settle.to, t - settle.start))
+  const cells = encode(settleFrame(settle.from, settle.to, t - settle.start, deep ?? true))
   // the first frames can come before the drawing that holds the Raster is
   // mounted; past that, a refused blit means the pane is gone or redrawn
   const { deny } = await $.ui.blit({ requestId: PANE, key: 'page', cells })
@@ -333,13 +333,13 @@ export const register: Register = (on, options) => {
         drawnPage = { page, sig }
         if (settle && sameSize(settle.to, page)) {
           settle.to = page
-          return settleFrame(settle.from, page, now - settle.start)
+          return settleFrame(settle.from, page, now - settle.start, deep ?? true)
         }
         settle = null
         if (!before || before.sig === sig || !following || v.help || !sameSize(before.page, page)) return null
         settle = { from: before.page, to: page, start: now }
         runSettle($)
-        return settleFrame(before.page, page, 0)
+        return settleFrame(before.page, page, 0, deep ?? true)
       }
 
       const drawn = screen(T, {

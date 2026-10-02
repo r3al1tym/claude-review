@@ -316,7 +316,8 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
   const ask = waitingFor(s, surface)
   const lit = (spans: readonly Span[]): Span[] =>
     spans.map(sp => ({ ...sp, style: { ...sp.style, color: hex(held(rgb(sp.style?.color ?? INK.body))) } }))
-  const asked = ask === null ? content : content.map(l => (l.kind === 'text' ? { ...l, spans: lit(l.spans) } : l))
+  // held warm in true colour only: a 256-colour terminal's nearest warm greys are pinks
+  const asked = ask === null || !s.deep ? content : content.map(l => (l.kind === 'text' ? { ...l, spans: lit(l.spans) } : l))
   const room = bodyH - lead.length - content.length - 2
   const lifted = ask !== null && room > 2
   const lift = lifted

@@ -61,7 +61,7 @@ In the terminal it lays out its own rows (`hooks/markdown.ts`, `hooks/screen.tsx
 - **Early access.** Function hooks are an early-access Claude Code surface that may change between releases. This version is checked against Claude Code 2.1.287 with `claude plugin validate .` and `claude plugin test .`.
 - **Letter keys.** A pane's keys are letters and digits, so the guide is `m` and surfaces are `t`, and the pane needs the keyboard (ctrl+x then Tab) before they work.
 - **No horizontal scroll.** Wide tables shrink their widest columns and wrap; long code lines wrap with a hanging indent.
-- **Colour depth.** The lamp and the settle are smoothest where Claude Code paints true colour. Under tmux, or without `COLORTERM=truecolor`, it paints 256 colours, and the lamp keeps three palette colours and breathes by its weight.
+- **Colour depth.** The lamp and the settle are smoothest where Claude Code paints true colour. Under tmux, or without `COLORTERM=truecolor`, it paints 256 colours: the lamp keeps three palette colours and breathes by its weight, and the settle and a waiting question stay grey, since that palette's nearest warm greys are pinks.
 
 ## The standalone CLI
 
