@@ -216,8 +216,13 @@ async function settleTick($: EngineInterface): Promise<void> {
   const t = await $.clock.now()
   if (!settle || t - settle.start >= settleMs(settle.to.rows)) return endSettle($)
   const cells = encode(settleFrame(settle.from, settle.to, t - settle.start))
-  if ((await $.ui.blit({ requestId: PANE, key: 'page', cells })).deny) endSettle($)
+  // the first frames can come before the drawing that holds the Raster is
+  // mounted; past that, a refused blit means the pane is gone or redrawn
+  const { deny } = await $.ui.blit({ requestId: PANE, key: 'page', cells })
+  if (deny && t - settle.start > SETTLE_GRACE_MS) endSettle($)
 }
+
+const SETTLE_GRACE_MS = 150
 
 function runSettle($: EngineInterface): void {
   if (!settleTimer) settleTimer = $.clock.every(16, () => void settleTick($))

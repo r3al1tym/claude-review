@@ -349,10 +349,11 @@ function block(b: Block, width: number, base: Style | undefined): Line[] {
 
 // A code line wider than the panel wraps where it offers a break (after a
 // space or one of , ; ( { [ =), else where it must; each continuation hangs
-// two cells under the line's own indent, so it never reads as a new line.
+// four cells under the line's own indent, deeper than the next block level,
+// so it never reads as a new statement.
 export function softWrap(line: string, width: number): string[] {
   if (cells(line) <= width || width < 8) return [line]
-  const hang = ' '.repeat(Math.min((/^ */.exec(line)?.[0].length ?? 0) + 2, Math.floor(width / 2)))
+  const hang = ' '.repeat(Math.min((/^ */.exec(line)?.[0].length ?? 0) + 4, Math.floor(width / 2)))
   const out: string[] = []
   let rest = [...line]
   for (let first = true; cells(rest.join('')) > width; first = false) {
