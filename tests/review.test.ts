@@ -209,7 +209,9 @@ test('a pending AskUserQuestion leads as the question surface, under the lamp at
   await $.command.run(TOGGLE)
 
   const ui = await mountTerminal($)
-  expect(await ui.find({ type: 'Text', text: 'Color' })).toBeDefined()
+  // the question heads its options; the tab label stays on Claude Code's tab
+  expect(await ui.find({ type: 'Text', text: 'Which color?' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Color' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: 'Blue: calm' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Waiting for your answer' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^waiting/ })).toBeDefined()
@@ -239,6 +241,22 @@ test('in a 256-colour terminal a waiting question stays grey, since the nearest 
     .flatMap(c => (typeof c.props.color === 'string' ? [c.props.color] : []))
   expect(inks.length).toBeGreaterThan(0)
   expect(inks.every(c => c.slice(1, 3) === c.slice(5, 7))).toBe(true)
+  await ui.unmount()
+})
+
+test('a code block is set in the grey ramp: keywords bold, strings a step down, comments quiet and italic', async ($, on) => {
+  fakePanes(on)
+  light(on)
+  on('session.messages', () => ({ value: [prompt('show me'), reply('```ts\nconst x = "hi" // a note\n```')] }))
+  await $.command.run(TOGGLE)
+
+  const ui = await mountTerminal($)
+  const line = await ui.find({ type: 'Text', text: 'const x = "hi" // a note' })
+  const parts = (line?.children ?? []).filter((c): c is { props: Record<string, unknown>; children: unknown[] } => typeof c === 'object')
+  const style = (text: string) => parts.find(c => c.children.join('') === text)?.props
+  expect(style('const')).toMatchObject({ color: '#eeeeee', bold: true })
+  expect(style('"hi"')).toMatchObject({ color: '#aaaaaa' })
+  expect(style('// a note')).toMatchObject({ color: '#888888', italic: true })
   await ui.unmount()
 })
 

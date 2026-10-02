@@ -16,9 +16,9 @@ export function renderQuestion(input: Record<string, unknown>): string | null {
     if (typeof q !== 'object' || q === null) return []
     const { header, question, options, multiSelect } = q as Record<string, unknown>
     if (!str(header) && !str(question)) return []
-    const lines: string[] = []
-    if (str(header)) lines.push(`### ${str(header)}`)
-    if (str(question)) lines.push(str(question)!)
+    // the question is its own heading; the header is the short label Claude
+    // Code puts on a tab, and stands in only when there is no question
+    const lines = [`### ${str(question) ?? str(header)}`]
     // numbered as Claude Code numbers them, so an option here is the key there
     const list = (Array.isArray(options) ? options : []).map(op => (typeof op === 'object' && op !== null ? op : { label: op }) as Record<string, unknown>)
     list.filter(op => str(op.label)).forEach((op, n) => {

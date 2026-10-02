@@ -46,7 +46,7 @@ The pane follows the live turn. Give it the keyboard with ctrl+x then Tab (until
 
 The lamp is the session's state. While Claude works it gathers into a short ember at the centre that breathes slowly; when the turn passes to you it opens across the column and holds; when a plan or a question waits on you it burns full and heavier, and the plan or question leads the page. A new reply settles in: the old page sinks and the new one is lit line by line from the top, each line passing through the lamp's warmth. While a new prompt runs, the last answer stays on the page, dimmed, under your prompt.
 
-A reply longer than the pane gets a fore-edge, a ruler down the right edge with a tick where each section starts and a grey bar beside the rows in view, and once you scroll into it the row under the lamp names the section you are in. While the view is frozen or on an earlier turn, `new reply` lights up in the key row when a reply lands on the live turn.
+A reply longer than the pane gets a fore-edge, a thin track down the right edge: a grey bar beside the rows in view, with a notch where each section starts, and once you scroll into it the row under the lamp names the section you are in. While the view is frozen or on an earlier turn, `new reply` lights up in the key row when a reply lands on the live turn.
 
 To change the default, set *Open on start* in `/config` (on: the pane opens by itself on a wide terminal; off: only `/claude-review` opens it). `claude plugin disable review-pane@claude-review` turns the mod off everywhere, and `enable` turns it back on.
 
@@ -54,7 +54,7 @@ To change the default, set *Open on start* in `/config` (on: the pane opens by i
 
 The mod reads the conversation through the hooks API (`$.session.messages()`) and refreshes as rows land (`session.append`), so the pane updates while Claude writes, not only when a turn ends. It writes nothing to the session, makes no network calls and touches no files; `y` puts text on your clipboard through Claude Code.
 
-In the terminal it lays out its own rows (`hooks/markdown.ts`, `hooks/screen.tsx`): a monochrome markdown theme where emphasis comes from weight and a grey ramp and only code keeps its syntax colours, a column of at most 72 cells, the lamp on top and one key row at the bottom. The lamp, the fore-edge and the settle are `Raster` cells repainted by `$.ui.blit` on a timer (`hooks/paint.ts`, `hooks/motion.ts`); a Raster paints at 12-bit colour, so the whole palette is 12-bit and a painted page matches the Text one exactly. The desktop app and VS Code draw the same reply with their own Markdown and buttons.
+In the terminal it lays out its own rows (`hooks/markdown.ts`, `hooks/screen.tsx`): a monochrome markdown theme where emphasis comes from weight and a grey ramp, code included (`hooks/syntax.ts`: keywords bold, strings a step down, comments quiet and italic), a column of at most 72 cells, the lamp on top and one key row at the bottom. The lamp, the fore-edge and the settle are `Raster` cells repainted by `$.ui.blit` on a timer (`hooks/paint.ts`, `hooks/motion.ts`); a Raster paints at 12-bit colour, so the whole palette is 12-bit and a painted page matches the Text one exactly. The desktop app and VS Code draw the same reply with their own Markdown and buttons.
 
 ## Limitations
 

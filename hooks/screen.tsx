@@ -291,7 +291,7 @@ export type Laid = {
 // `paint` may take over the body: given the page as cells, it returns the
 // cells to draw instead (a settle's frame), or null to draw Text.
 export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (page: Page) => Uint32Array | null): { tree: JSX.Element; laid: Laid } {
-  const { Box, Code, Link, Raster, Text } = E
+  const { Box, Link, Raster, Text } = E
   const W = s.columns
   const col = columnOf(W)
   const bodyW = Math.max(1, W - 2) // the last two columns hold the fore-edge
@@ -377,26 +377,8 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
         i += 1
       }
       const preW = spanCells(l.prefix)
-      const parts: JSX.Element[] = []
-      for (let k = 0; k < group.length;) {
-        if (group[k]!.pad) {
-          parts.push(<Text> </Text>)
-          k += 1
-          continue
-        }
-        const run: string[] = []
-        while (k < group.length && !group[k]!.pad) {
-          // a blank line inside a block keeps its row
-          run.push(clip(group[k]!.text, col.measure + 8) || ' ')
-          k += 1
-        }
-        const language = /^[\w+#.-]{1,24}$/.test(l.language) ? l.language : undefined
-        // dimmed, a block keeps its panel and drops its syntax colours
-        if (s.dim) parts.push(<Box flexDirection="column">{run.map(r => <Text color={dimInk(INK.code)} wrap="truncate-end">{r}</Text>)}</Box>)
-        else parts.push(run.some(r => r.trim() !== '')
-          ? <Code source={run.join('\n')} wrap="truncate-end" {...(language ? { language } : {})} />
-          : <Box flexDirection="column">{run.map(() => <Text> </Text>)}</Box>)
-      }
+      // each row in the grey ramp; dimmed, a block dims with the page
+      const parts = group.map(g => (g.pad ? <Text> </Text> : row(s.dim ? dim(g.spans) : g.spans, 0)))
       body.push(
         <Box flexDirection="row">
           {row(l.prefix, col.left)}

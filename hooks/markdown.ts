@@ -1,9 +1,12 @@
 // Markdown to rows, in a monochrome reading theme: emphasis comes from weight
 // (bold, italic, underline) and a grey ramp, never hue, so the only bright
-// thing in the column is the text itself. Code keeps its syntax colours.
+// thing in the column is the text itself. Code is set in the same ramp, by
+// weight and shade (hooks/syntax.ts).
 
 import { cells, clean, wrap } from './text'
 import type { Span, Style } from './text'
+import { highlight } from './syntax'
+import type { Ramp } from './syntax'
 
 // Every colour is a 12-bit one (#rgb doubled): a Raster paints at that depth,
 // so Text and the painted page land on the same values.
@@ -19,13 +22,23 @@ export const INK = {
   link: '#888888',
   code: '#eeeeee', // inline code: the brightest ink, no chip
   codeBg: '#333333', // a step above the page
+  string: '#aaaaaa', // strings in a code block, a step under its body
   badge: '#aaaaaa', // key chips, on the rule's grey
   lamp: '#ddaa66', // tungsten, for the words that speak for the lamp
 } as const
 
+// a code block in the grey ramp: keywords bold at the full ink, strings a
+// step down, comments quiet and italic
+const CODE: Ramp = {
+  plain: { color: INK.body },
+  keyword: { color: INK.brightest, bold: true },
+  string: { color: INK.string },
+  comment: { color: INK.quiet, italic: true },
+}
+
 export type Line =
   | { kind: 'text'; spans: Span[]; head?: string }
-  | { kind: 'code'; prefix: Span[]; text: string; language: string; block: number; pad: boolean }
+  | { kind: 'code'; prefix: Span[]; text: string; spans: Span[]; language: string; block: number; pad: boolean }
 
 type Block =
   | { kind: 'heading'; level: number; text: string }
@@ -323,9 +336,11 @@ function block(b: Block, width: number, base: Style | undefined): Line[] {
       return [text([{ text: '─'.repeat(width), style: { color: INK.rule } }])]
     case 'code': {
       const id = ++blockSeq
-      const row = (t: string, pad: boolean): Line => ({ kind: 'code', prefix: [], text: t, language: b.language, block: id, pad })
+      const row = (spans: Span[], pad: boolean): Line =>
+        ({ kind: 'code', prefix: [], text: spans.map(sp => sp.text).join(''), spans, language: b.language, block: id, pad })
+      const set = highlight(b.lines, b.language, CODE)
       // the panel pads a cell a side
-      return [row('', true), ...b.lines.flatMap(l => softWrap(l, width - 2)).map(l => row(l, false)), row('', true)]
+      return [row([], true), ...b.lines.flatMap((l, n) => fold(set[n]!, softWrap(l, width - 2))).map(sp => row(sp, false)), row([], true)]
     }
     case 'quote': {
       const quoteStyle = merge(base, { color: INK.question, italic: true })
@@ -378,6 +393,27 @@ export function softWrap(line: string, width: number): string[] {
   }
   out.push(rest.join(''))
   return out
+}
+
+// A line's styled spans laid onto the rows softWrap cut it into: each row
+// after the first opens with its hang, and the spaces a cut trimmed drop out.
+function fold(spans: readonly Span[], rows: readonly string[]): Span[][] {
+  const chars = spans.flatMap(sp => [...sp.text].map(ch => ({ ch, style: sp.style })))
+  let p = 0
+  return rows.map((r, n) => {
+    const out: Span[] = []
+    const body = n === 0 ? r : r.trimStart()
+    if (body.length < r.length) out.push({ text: r.slice(0, r.length - body.length) })
+    if (n > 0) while (p < chars.length && /\s/.test(chars[p]!.ch)) p++
+    for (const ch of body) {
+      const style = chars[p]?.ch === ch ? chars[p]!.style : undefined
+      p++
+      const last = out[out.length - 1]
+      if (last && last.style === style) last.text += ch
+      else out.push(style ? { text: ch, style } : { text: ch })
+    }
+    return out
+  })
 }
 
 function table(b: Extract<Block, { kind: 'table' }>, width: number, base: Style | undefined): Line[] {

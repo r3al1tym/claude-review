@@ -13,12 +13,14 @@ The pane becomes a page under a lamp: one line of warm light over the reply that
 - **The settle.** A new reply never replaces the page in one frame: the old page sinks into the ground, then the new one is lit line by line from the top, each line passing through the lamp's warmth before it cools to its grey, in under a second, painted cell by cell in true colour. A code block rises as one panel, and blank rows take no time.
 - **The last answer stays.** While a new prompt runs and has no reply yet, your prompt sits under the lamp and the last answer stays below it, named *Previous answer* and dimmed, code panels included, with its headings and weights intact.
 - **Questions at the eye line.** A short question or plan waiting on you sits a third of the way down the page, and a question's options are numbered as Claude Code numbers them, so an option in the pane is the key that answers it.
-- **The fore-edge.** A reply longer than the pane gets a ruler down its right edge: a short tick where each section starts, and a grey bar beside the rows in view.
+- **The fore-edge.** A reply longer than the pane gets a thin track down its right edge: a grey bar beside the rows in view, with a notch where each section starts.
 - **The running head.** Scrolled into a long reply, the row under the lamp names the section you are in.
 
 ### Changed
 - The lamp is the only colour on the page, and what waits on you is the only thing it tints; the words that name its state stay grey.
 - The key row's cues read `f freeze · h l turns · m keys`.
+- Code blocks are set in the page's grey ramp instead of syntax colours: keywords bold at the full ink, strings a step down, comments quiet and italic. Code takes colour only while it passes through the lamp's light in a settle.
+- A question is its own heading over its options; the short header label stays on Claude Code's tab.
 - The column is centred and at most 72 cells wide, on its own ground; both hairline rules and the `claude review` wordmark are gone, and an earlier turn names itself (*Turn 2 of 5*) in the head row.
 - Every colour is a 12-bit value shared by the Text and the painted cells, so a settled frame lands on exactly what Text draws. Running text is a set grey, headings the brightest.
 - A table whose rows wrap sets its rows a blank line apart.
