@@ -356,21 +356,29 @@ test('a new reply settles in: the page paints as cells, then lands as Text', asy
   await ui.unmount()
 })
 
-test('while a new prompt runs, the last answer stays on the page, dimmed, and the lamp breathes', async ($, on) => {
+test('a new prompt leaves the last answer as it was, names itself quietly in the head row, and the lamp breathes', async ($, on) => {
   fakePanes(on)
   const { clock, blits } = light(on)
-  on('session.messages', () => ({ value: [prompt('first ask'), reply('The first answer.'), prompt('second ask')] }))
+  let messages = [prompt('first ask'), reply('The first answer.')]
+  on('session.messages', () => ({ value: messages }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
   await $.command.run(TOGGLE)
-
-  await $.turn.start({ text: 'second ask', turnId: 'main' })
   const ui = await mountTerminal($)
-  // the head row says what the page is, the new prompt leads, the answer sits dimmed below
-  expect(await ui.find({ type: 'Text', text: 'Previous answer' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '› second ask' })).toBeDefined()
+
+  messages = [...messages, prompt('second ask')]
+  await $.turn.start({ text: 'second ask', turnId: 'main' })
+  await $.turn.complete(turnEnd) // another turn's end reads the session while main runs
+  // no settle: the page holds, the answer at full ink
+  expect(await ui.find({ type: 'Raster', key: 'page' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'Previous answer' })).toBeUndefined()
   const answer = await ui.find({ type: 'Text', text: 'The first answer.' })
   const words = (answer?.children ?? []).filter((c): c is { props: Record<string, unknown> } => typeof c === 'object')
-  expect(words.every(w => w.props.color === '#777777')).toBe(true)
+  expect(words.length).toBeGreaterThan(0)
+  expect(words.every(w => w.props.color === '#cccccc')).toBe(true)
+  const head = await ui.find({ type: 'Text', text: '› second ask' })
+  const ink = (head?.children ?? []).filter((c): c is { props: Record<string, unknown> } => typeof c === 'object')
+  expect(ink.some(w => w.props.color === '#888888' && w.props.italic === true)).toBe(true)
   expect(await ui.find({ type: 'Text', text: /^working/ })).toBeDefined()
 
   await clock.advance(400)
@@ -380,19 +388,26 @@ test('while a new prompt runs, the last answer stays on the page, dimmed, and th
   await ui.unmount()
 })
 
-test('a long new prompt wraps to three rows over the dimmed answer, the last cut with an ellipsis', async ($, on) => {
+test('a new prompt keeps your place in a long answer, and a long prompt takes one row, cut with an ellipsis', async ($, on) => {
   fakePanes(on)
   light(on)
+  on('ui.scroll', () => ({}))
   const ask = Array.from({ length: 40 }, (_, i) => `word${i}`).join(' ')
-  on('session.messages', () => ({ value: [prompt('first ask'), reply('The first answer.'), prompt(ask)] }))
+  let messages = [prompt('first ask'), reply(Array.from({ length: 80 }, (_, i) => `Line ${i}.`).join('\n\n'))]
+  on('session.messages', () => ({ value: messages }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
   await $.command.run(TOGGLE)
+  const ui = await mountTerminal($, 20)
+  await $.ui.scroll({ component: 'Pane', requestId: 'claude-review', offset: 1, by: 5, bodyRows: 20, contentRows: 21, origin: { kind: 'person' } })
+  expect(await ui.find({ type: 'Text', text: 'Line 0.' })).toBeUndefined()
 
+  messages = [...messages, prompt(ask)]
   await $.turn.start({ text: ask, turnId: 'main' })
-  const ui = await mountTerminal($)
-  expect(await ui.find({ type: 'Text', text: /^ {4}› word0 word1/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^ {6}word\d+ word\d+/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /…$/ })).toBeDefined()
+  await $.turn.complete(turnEnd)
+  expect(await ui.find({ type: 'Text', text: 'Line 0.' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^ {4}› word0 word1.*…$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^ {6}word\d+ word\d+/ })).toBeUndefined()
   await ui.unmount()
 })
 

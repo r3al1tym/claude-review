@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+- **A new prompt leaves the page alone.** The last answer stays exactly as it was while Claude works on a new prompt: full ink, no settle, and the scroll where you left it. One quiet italic line under the lamp names the prompt being worked on (cut to one row), and the lamp gathers into its breathing ember. The page settles only when the new reply lands. *Previous answer* and the dimming are gone.
+
 ## [1.1.0] — 2026-10-01
 
 The pane becomes a page under a lamp: one line of warm light over the reply that tells you, from the corner of your eye, whether Claude is working or waiting on you, and a page that never jump-cuts.

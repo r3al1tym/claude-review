@@ -10,7 +10,7 @@ import type { ElementTable } from 'claude-code'
 import type { ReviewTask, ReviewTurn, ReviewView } from '../types'
 import { INK, layout } from './markdown'
 import type { Line } from './markdown'
-import { GROUND, encode, exact, hex, lampSpans, mix, paintEdge, paintLamp, paintPage, rgb } from './paint'
+import { encode, hex, lampSpans, paintEdge, paintLamp, paintPage, rgb } from './paint'
 import { held } from './motion'
 import type { Light } from './motion'
 import type { Column, Page } from './paint'
@@ -18,8 +18,6 @@ import { cells, clip, oneline, spanCells, wrap } from './text'
 import type { Span, Style } from './text'
 
 export const MEASURE = 72
-// how far a dimmed answer sinks toward the ground
-const DIM = 0.45
 
 export type Surface = { label: string; lines: (width: number) => Line[]; raw: string }
 
@@ -39,10 +37,10 @@ export type ScreenInput = {
   turnCount: number
   view: ReviewView
   facts: Facts | null
-  // the prompt to lead with: an earlier turn's, or a new one over the dimmed answer
+  // an earlier turn's prompt, to lead the page with
   prompt: string | null
-  // the last answer, dimmed under a new prompt that has no reply yet
-  dim: boolean
+  // a new prompt Claude is working on, over the last answer it carries
+  pending: string | null
   // the lamp's light now, whether it holds still, and whether the terminal paints true colour
   lamp: Light
   still: boolean
@@ -202,9 +200,9 @@ export function stateOf(s: Pick<ScreenInput, 'view' | 'waiting' | 'working' | 't
   return { word: s.turnCount > 0 ? 'done' : 'idle', style: quiet }
 }
 
-// The row under the lamp: what waits on you, why the page is dim, the
-// section in view, or which earlier turn this is; blank when none applies.
-// It belongs to the page, so it settles and dims with it.
+// The row under the lamp: what waits on you, the prompt Claude is working
+// on, the section in view, or which earlier turn this is; blank when none
+// applies. It belongs to the page, so it settles with it.
 // The eyebrow over what waits on you, when the surface shown is that thing.
 function waitingFor(s: ScreenInput, surface: Surface): string | null {
   if (s.view.help || s.waiting === null) return null
@@ -233,7 +231,8 @@ function headRow(s: ScreenInput, surface: Surface, lines: readonly Line[], scrol
   if (s.view.help) return []
   const ask = waitingFor(s, surface)
   if (ask && !lifted) return at(ask, { color: INK.bright, italic: true })
-  if (s.dim && s.prompt) return promptRows(s.prompt, col.measure, INK.bright)[0]!
+  // quiet, one row: the answer below stays the thing you read
+  if (s.pending) return at(`› ${oneline(s.pending)}`, { color: INK.quiet, italic: true })
   // a section's own heading at the top of the view needs no running head
   const top = lines[scroll]
   if (scroll > 0 && !(top?.kind === 'text' && top.head !== undefined)) {
@@ -313,19 +312,9 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
   const active = Math.min(s.view.surface, surfaces.length - 1)
   const surface = surfaces[active]!
 
-  // an earlier turn, or a new prompt over the dimmed answer, leads with its
-  // prompt, so a reply is never read out of context
+  // an earlier turn leads with its prompt, so a reply is never read out of context
   const content = s.view.help ? helpLines(s, col.measure, state) : surface.lines(col.measure)
-  // the new prompt rides the head row, and the dimmed answer is named above itself
-  // (the new prompt's first row is the head row; the rest of it leads the page)
-  const lead = s.view.help ? []
-    : s.dim ? [
-        ...(s.prompt ? promptRows(s.prompt, col.measure, INK.bright).slice(1).map(textLine) : []),
-        blank(),
-        textLine([{ text: 'Previous answer', style: { color: INK.quiet, italic: true } }]),
-      ]
-    : s.prompt ? [...promptRows(s.prompt, col.measure, INK.question).map(textLine), blank()]
-    : []
+  const lead = !s.view.help && s.prompt ? [...promptRows(s.prompt, col.measure, INK.question).map(textLine), blank()] : []
   // what waits on you sits a third of the way down, where the eye rests,
   // when it is short enough to leave the room
   // and its eyebrow travels with it
@@ -347,15 +336,11 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
 
   // the page is the head row and the body window, as one grid of cells
   const head = headRow(s, surface, lines, scroll, col, lifted)
-  const dimmed = (y: number): boolean => s.dim && scroll + y >= lead.length
-  const inks = [1, ...window.map((_, y) => (dimmed(y) ? DIM : 1))]
   // the fore-edge sits beside the body rows, under the head row's spacer
   const marks = maxScroll > 0 ? paintEdge(lines.length, bodyH, scroll, bodyH) : null
-  const page = { ...paintPage([textLine(head), ...window], col, W, bodyH + 1, inks), edge: W - bodyW }
+  const page = { ...paintPage([textLine(head), ...window], col, W, bodyH + 1), edge: W - bodyW }
   if (marks) for (let y = 0; y < bodyH; y++) page.cells.set(marks.subarray(y * 6, y * 6 + 6), ((y + 1) * W + bodyW) * 3)
   const painted = paint?.(page) ?? null
-  const dimInk = (color: string): string => hex(mix(GROUND, rgb(color), DIM))
-  const dim = (spans: readonly Span[]): Span[] => spans.map(sp => ({ ...sp, style: { ...sp.style, color: dimInk(sp.style?.color ?? INK.body) } }))
 
   const styled = (sp: Span): JSX.Element => {
     const st = sp.style ?? {}
@@ -381,7 +366,7 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
     for (; i < window.length;) {
       const l = window[i]!
       if (l.kind === 'text') {
-        body.push(row(dimmed(i) ? dim(l.spans) : l.spans, col.left))
+        body.push(row(l.spans, col.left))
         i += 1
         continue
       }
@@ -393,12 +378,12 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
         i += 1
       }
       const preW = spanCells(l.prefix)
-      // each row in the grey ramp; dimmed, a block dims with the page
-      const parts = group.map(g => (g.pad ? <Text> </Text> : row(s.dim ? dim(g.spans) : g.spans, 0)))
+      // each row in the grey ramp
+      const parts = group.map(g => (g.pad ? <Text> </Text> : row(g.spans, 0)))
       body.push(
         <Box flexDirection="row">
           {row(l.prefix, col.left)}
-          <Box flexDirection="column" width={Math.max(4, col.measure - preW)} paddingX={1} backgroundColor={s.dim ? exact(mix(GROUND, rgb(INK.codeBg), DIM)) : INK.codeBg}>
+          <Box flexDirection="column" width={Math.max(4, col.measure - preW)} paddingX={1} backgroundColor={INK.codeBg}>
             {parts}
           </Box>
         </Box>,

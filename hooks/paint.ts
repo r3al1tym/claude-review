@@ -1,6 +1,6 @@
 // The pane's light, painted as Raster cells: the lamp over the text column,
 // the fore-edge map, and the page itself whenever it has to move (the
-// settle) or sit dimmed. A Raster paints colours at 12 bits, so the palette
+// settle). A Raster paints colours at 12 bits, so the palette
 // (INK) is 12-bit too, and a painted page lands on exactly what its Text
 // drawing shows.
 
@@ -13,12 +13,12 @@ import type { Span } from './text'
 export const rgb = (hex: string): number => Number.parseInt(hex.slice(1), 16)
 
 // A colour as Text takes it, snapped to 12 bits as a Raster paints it, so a
-// dimmed Text page and its painted cells are the same colour.
+// tinted Text row and its painted cells are the same colour.
 export const hex = (n: number): string =>
   `#${[16, 8, 0].map(sh => (Math.round(((n >> sh) & 0xff) / 17) * 17).toString(16).padStart(2, '0')).join('')}`
 
 // A colour at full depth, for a Text-only shade that falls between two
-// 12-bit steps (a dimmed code panel).
+// 12-bit steps (the still lamp's smooth ramp).
 export const exact = (n: number): string => `#${n.toString(16).padStart(6, '0')}`
 
 export const GROUND = rgb(INK.ground)
@@ -75,11 +75,10 @@ export function encode(cells: Uint32Array): string {
 
 // Lay spans into one row from column `x`, clipped at `end`; a wide glyph
 // paints as spaces (a Raster takes width-1 glyphs only), a control as one.
-function put(page: Page, y: number, x: number, end: number, spans: readonly Span[], ink: number, bg?: number): number {
+function put(page: Page, y: number, x: number, end: number, spans: readonly Span[], bg?: number): number {
   for (const sp of spans) {
-    // a dimmed page dims its ink and its code panels alike
-    const fg = mix(GROUND, rgb(sp.style?.color ?? INK.body), ink)
-    const back = mix(GROUND, sp.style?.bg !== undefined ? rgb(sp.style.bg) : (bg ?? GROUND), ink)
+    const fg = rgb(sp.style?.color ?? INK.body)
+    const back = sp.style?.bg !== undefined ? rgb(sp.style.bg) : (bg ?? GROUND)
     for (const ch of sp.text) {
       const cp = ch.codePointAt(0) ?? 0x20
       const w = cellsOf(cp)
@@ -103,23 +102,22 @@ export type Column = { left: number; measure: number }
 
 // The body window as the Text drawing lays it: text rows from the column's
 // left edge, code rows as a panel the measure wide (one cell of padding a
-// side). `inks` dims a row toward the ground, 1 being full ink.
-export function paintPage(window: readonly Line[], col: Column, columns: number, rows: number, inks: readonly number[]): Page {
+// side).
+export function paintPage(window: readonly Line[], col: Column, columns: number, rows: number): Page {
   const page: Page = { ...blankPage(columns, rows), units: Array.from({ length: rows }, (_, y) => y), column: col, stress: new Uint8Array(columns * rows) }
   window.slice(0, rows).forEach((l, y) => {
     const prev = window[y - 1]
     if (l.kind === 'code' && prev?.kind === 'code' && prev.block === l.block) page.units![y] = page.units![y - 1]!
-    const ink = inks[y] ?? 1
     if (l.kind === 'text') {
-      put(page, y, col.left, columns, l.spans, ink)
+      put(page, y, col.left, columns, l.spans)
       return
     }
-    const x0 = put(page, y, col.left, columns, l.prefix, ink)
+    const x0 = put(page, y, col.left, columns, l.prefix)
     const width = Math.max(4, col.measure - spanCells(l.prefix))
     const end = Math.min(columns, x0 + width)
     const panel = rgb(INK.codeBg)
-    put(page, y, x0, end, [{ text: ' '.repeat(width) }], ink, panel)
-    if (!l.pad) put(page, y, x0 + 1, end - 1, l.spans, ink, panel)
+    put(page, y, x0, end, [{ text: ' '.repeat(width) }], panel)
+    if (!l.pad) put(page, y, x0 + 1, end - 1, l.spans, panel)
   })
   return page
 }

@@ -40,15 +40,16 @@ function onScreen(snap: ReviewSnapshot, v: ReviewView): { turn: ReviewTurn; curs
 const isBlank = (t: ReviewTurn): boolean => !t.text && !t.plan && !t.ask
 
 // What the page shows. A new turn that has nothing to show yet keeps the last
-// answer on the page, dimmed under the new prompt, so the page never empties
-// while Claude works; an earlier turn leads with the prompt it answered.
+// answer on the page as it was, at full ink and where you had scrolled it,
+// with the new prompt named quietly in the head row; an earlier turn leads
+// with the prompt it answered.
 function display(snap: ReviewSnapshot, v: ReviewView, busy: boolean) {
   const at = onScreen(snap, v)
   const prev = snap.turns[at.cursor - 1]
   if (busy && !at.historical && !v.frozen && isBlank(at.turn) && prev && !isBlank(prev)) {
-    return { ...at, turn: prev, dim: true, prompt: at.turn.question }
+    return { ...at, turn: prev, prompt: null, pending: at.turn.question }
   }
-  return { ...at, dim: false, prompt: at.historical ? at.turn.question : null }
+  return { ...at, prompt: at.historical ? at.turn.question : null, pending: null }
 }
 
 const isFollowing = (snap: ReviewSnapshot, v: ReviewView): boolean =>
@@ -262,7 +263,7 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // the reply lands before the turn stops counting as working, so a dimmed
+  // the reply lands before the turn stops counting as working, so the carried
   // answer settles straight into the new one, and the lamp comes up after
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
@@ -305,7 +306,7 @@ export const register: Register = (on, options) => {
     const snap = await read($, snapshot)
     const v = await read($, view)
     const busy = (await read($, working)).length > 0
-    const { turn, cursor, historical, dim, prompt } = display(snap, v, busy)
+    const { turn, cursor, historical, prompt, pending } = display(snap, v, busy)
     const isLatest = !historical
     const behind = !isFollowing(snap, v) && hasReply(snap) && replySig(snap) !== v.seen
 
@@ -361,7 +362,7 @@ export const register: Register = (on, options) => {
         view: v,
         facts,
         prompt,
-        dim,
+        pending,
         lamp: lampLight(lamp, now),
         still: !lampMoving(lamp, now),
         deep,

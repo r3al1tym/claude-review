@@ -94,11 +94,13 @@ export function buildSnapshot(messages: readonly SessionMessage[]): ReviewSnapsh
   return { turns, tasks: replayTasks(messages) }
 }
 
-// What the latest turn shows as a reply. It changes when a reply lands or
-// grows, never when a tool runs, so "new reply" means one.
+// The latest reply: the last turn that has one, so a new prompt with no reply
+// yet leaves it where it was. It changes when a reply lands or grows, never when a tool runs or
+// a prompt is sent, so "new reply" means one.
 export function replySig(snap: ReviewSnapshot): string {
-  const t = snap.turns[snap.turns.length - 1]
-  return t ? JSON.stringify([snap.turns.length, t.text, t.plan, t.ask]) : ''
+  const at = snap.turns.findLastIndex(t => t.text || t.plan || t.ask)
+  const t = snap.turns[at]
+  return t ? JSON.stringify([at + 1, t.text, t.plan, t.ask]) : ''
 }
 
 export const hasReply = (snap: ReviewSnapshot): boolean => {

@@ -44,7 +44,7 @@ The pane follows the live turn. Give it the keyboard with ctrl+x then Tab (until
 | `m` | the guide: every key, plus the session's diagnostics |
 | `q` | close the pane |
 
-The lamp is the session's state. While Claude works it gathers into a short ember at the centre that breathes slowly; when the turn passes to you it opens across the column and holds; when a plan or a question waits on you it burns full and heavier, and the plan or question leads the page. A new reply settles in: the old page sinks and the new one is lit line by line from the top, each line passing through the lamp's warmth. While a new prompt runs, the last answer stays on the page, dimmed, under your prompt.
+The lamp is the session's state. While Claude works it gathers into a short ember at the centre that breathes slowly; when the turn passes to you it opens across the column and holds; when a plan or a question waits on you it burns full and heavier, and the plan or question leads the page. A new reply settles in: the old page sinks and the new one is lit line by line from the top, each line passing through the lamp's warmth. While a new prompt runs, the last answer stays on the page as it was, at full ink and where you left it; the ember and one quiet line under the lamp naming your prompt are the only signs Claude is on it.
 
 A reply longer than the pane gets a fore-edge, a thin grey bar down the right edge beside the rows in view, and once you scroll into it the row under the lamp names the section you are in. While the view is frozen or on an earlier turn, `new reply` lights up in the key row when a reply lands on the live turn.
 
