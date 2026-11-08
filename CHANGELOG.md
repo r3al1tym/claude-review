@@ -12,6 +12,7 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 - The answer to your question stays on the page when a notification, a scheduled prompt or another session's message arrives after it, and when you send a second question before the first is answered. The pane used to show only the last reply of the last turn.
+- Prompts that reach Claude together (typed while a turn ran, then sent in one request) are one exchange: the first keeps the reply, and each later one shows on its own `›` line. Going back to the first used to show an empty exchange, with the answer under the last.
 - A reply that grows below the fold relights only its new lines: the rows above stay at their ink while the fore-edge moves.
 
 ## [1.1.0] — 2026-10-01

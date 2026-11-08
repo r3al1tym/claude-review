@@ -207,7 +207,10 @@ function placeHidden(messages: readonly SessionMessage[], prompts: readonly Revi
 // An exchange begins at a prompt the person sent, readable or hidden, and
 // keeps every text the assistant wrote until the next one. A prompt of theirs
 // folded into their running turn joins the exchange where it arrived; one that
-// ran as its own turn begins the next. A background turn after it (a schedule,
+// ran as its own turn begins the next. Prompts that reach the model together
+// (the engine sends queued prompts as one request) are one turn: a prompt row
+// with no assistant row since the person's last one joins that exchange, so
+// the earlier prompt keeps the reply. A background turn after it (a schedule,
 // a notification, another session) adds its reply under a quiet label, and one
 // with no text adds nothing. The rows before the first exchange read as they
 // always did, a turn at each plain-text prompt (byPrompt).
@@ -226,8 +229,9 @@ function exchanges(messages: readonly SessionMessage[], prompts: readonly Review
   const out: ReviewTurn[] = []
   // the first row of the first exchange; the exchange, the stretch of it texts
   // go to, and whose turn is running
-  const at: { lead: number; turn: ReviewTurn | null; part: ReviewPart | null; owner: 'person' | 'background' | null } =
-    { lead: messages.length, turn: null, part: null, owner: null }
+  // and whether any assistant row came since the last prompt
+  const at: { lead: number; turn: ReviewTurn | null; part: ReviewPart | null; owner: 'person' | 'background' | null; quiet: boolean } =
+    { lead: messages.length, turn: null, part: null, owner: null, quiet: false }
   const person = (text: string, folded: boolean, row: number): void => {
     if (folded && at.owner === 'person' && at.turn) {
       at.part = { cue: { kind: 'prompt', text }, texts: [] }
@@ -239,11 +243,13 @@ function exchanges(messages: readonly SessionMessage[], prompts: readonly Review
       out.push(at.turn)
     }
     at.owner = 'person'
+    at.quiet = true
   }
   const background = (source: Source): void => {
     at.owner = 'background'
     at.part = at.turn ? { cue: { kind: 'background', text: labelOf(source) }, texts: [] } : null
     if (at.part) at.turn!.parts.push(at.part)
+    at.quiet = true
   }
   // a prompt the pane cannot read, after row `i`: the person's begins an
   // exchange when it began a turn, unless it is the engine carrying on the
@@ -261,11 +267,14 @@ function exchanges(messages: readonly SessionMessage[], prompts: readonly Review
   messages.forEach((m, i) => {
     if (isPromptRow(m)) {
       const source = rowSource.get(i) ?? guess(m.text)
+      // sent along with the person's prompt above it, before any reply
+      const along = at.owner === 'person' && at.quiet
       if (source !== 'neither') {
-        if (source.from === 'person') person(m.text.trim(), false, i)
-        else background(source)
+        if (source.from === 'person') person(m.text.trim(), along, i)
+        else if (!along) background(source)
       }
     } else if (m.role === 'assistant') {
+      at.quiet = false
       if (m.text.trim() !== '') at.part?.texts.push(m.text)
       if (at.turn) noteTools(at.turn, m)
     }

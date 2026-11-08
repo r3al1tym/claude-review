@@ -636,6 +636,33 @@ test('a prompt typed during a background turn starts an exchange of its own', as
   await ui.unmount()
 })
 
+test('prompts sent together are one exchange, so going back to the first shows the reply', async ($, on) => {
+  fakePanes(on)
+  const { clock } = light(on)
+  const c = conversation(on)
+  await $.command.run(TOGGLE)
+  await c.prompt($, 'first ask')
+  await c.reply($, 'First answer.')
+  await $.turn.complete(turnEnd)
+  // queued while the last turn ran, then sent to the model in one request
+  await c.prompt($, 'recut the repo')
+  await c.prompt($, 'and the sounds are too loud')
+  await c.prompt($, NOTICE, NOTIFICATION)
+  await c.tool($, 't1')
+  await c.reply($, 'Recut, with the sounds brought down.')
+  await $.turn.complete(turnEnd)
+  await clock.advance(SETTLED)
+
+  const ui = await mountTerminal($)
+  expect(await ui.find({ type: 'Text', text: 'Recut, with the sounds brought down.' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '› and the sounds are too loud' })).toBeDefined()
+  expect(await texts(ui, /after a task notification/)).toBe(0)
+  await ui.press({ key: 'key-h' })
+  expect(await ui.find({ type: 'Text', text: 'Turn 1 of 2' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'First answer.' })).toBeDefined()
+  await ui.unmount()
+})
+
 test('an exchange keeps every text the assistant wrote, intermediate ones included', async ($, on) => {
   fakePanes(on)
   light(on)
