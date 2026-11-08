@@ -1,21 +1,23 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, UiPressArgument } from 'claude-code'
+import type { EngineInterface, PromptSubmitInput, PromptSubmitResult, Register, SessionAppendMessage, SessionMessage, UiPressArgument } from 'claude-code'
 
-import type { ReviewSnapshot, ReviewTurn, ReviewView } from '../types'
+import type { ReviewPrompt, ReviewSnapshot, ReviewTurn, ReviewView } from '../types'
 import { SETTLE_MS, lampLight, lampMoving, relight, settleFrame } from './motion'
 import type { Lamp, LampState } from './motion'
 import { encode, paintLamp } from './paint'
 import type { Column, Page } from './paint'
 import { columnOf, screen, surfacesFor } from './screen'
 import type { Facts, Laid } from './screen'
-import { buildSnapshot, hasReply, replySig } from './transcript'
+import { START, blocksPrint, blocksText, buildSnapshot, hasReply, isBlank, messagePrint, promptKey, replySig, sourceOf } from './transcript'
 
 const PANE = 'claude-review'
-const EMPTY_TURN: ReviewTurn = { question: null, text: null, plan: null, planWaiting: false, ask: null }
+const EMPTY_TURN: ReviewTurn = { question: null, parts: [], sig: '', plan: null, planWaiting: false, ask: null }
 const FIRST_VIEW: ReviewView = { index: null, frozen: false, held: null, surface: 0, scroll: 0, seen: '', help: false, flash: null }
 
-const snapshot = atom({ plugin: 'review-pane', key: 'snapshot' } as const, { turns: [], tasks: [] })
-const view = atom({ plugin: 'review-pane', key: 'view' } as const, FIRST_VIEW)
+// a turn is an exchange of parts now: what an older load kept reads as new
+const SHAPE = { shape: 'exchanges-1' } as const
+const snapshot = atom({ plugin: 'review-pane', key: 'snapshot' } as const, { turns: [], tasks: [] }, SHAPE)
+const view = atom({ plugin: 'review-pane', key: 'view' } as const, FIRST_VIEW, SHAPE)
 // the ids of the turns running now: the main one and any agent's
 const working = atom({ plugin: 'review-pane', key: 'working' } as const, [])
 
@@ -36,8 +38,6 @@ function onScreen(snap: ReviewSnapshot, v: ReviewView): { turn: ReviewTurn; curs
   const turn = (v.frozen && v.held) || snap.turns[cursor] || EMPTY_TURN
   return { turn, cursor, historical: cursor >= 0 && cursor < last }
 }
-
-const isBlank = (t: ReviewTurn): boolean => !t.text && !t.plan && !t.ask
 
 // What the page shows. A new turn that has nothing to show yet keeps the last
 // answer on the page as it was, at full ink and where you had scrolled it,
@@ -63,8 +63,143 @@ const catchUp = (snap: ReviewSnapshot, v: ReviewView): ReviewView => {
   return v.index === null && !v.frozen && v.held === null ? v : { ...v, index: null, frozen: false, held: null }
 }
 
+// ---------------------------------------------------------------- who sent each prompt
+
+// The conversation keeps no origin on a row, so the pane records each
+// prompt's as `prompt.submit` stamps it, and where it landed as its row is
+// appended, in its own store per session (a resumed session keeps them). The
+// store holds 4 MiB of JSON in all and refuses every write past that, so a
+// session keeps at most SESSION_BYTES of records, its newest, and the store
+// the SESSIONS_KEPT sessions written most recently: 1.5 MiB at most.
+const SESSION_BYTES = 64 * 1024
+const SESSIONS_KEPT = 24
+const storeKey = (id: string): string => `prompts:${id}`
+type Kept = { at: number; prompts: ReviewPrompt[] }
+
+const isPrompt = (v: unknown): v is ReviewPrompt =>
+  typeof v === 'object' && v !== null && typeof (v as ReviewPrompt).text === 'string' && typeof (v as ReviewPrompt).from === 'string'
+const keptOf = (v: unknown): Kept | null => {
+  const k = v as Kept | null
+  return typeof k === 'object' && k !== null && typeof k.at === 'number' && Array.isArray(k.prompts) ? { at: k.at, prompts: k.prompts.filter(isPrompt) } : null
+}
+const bytes = (v: unknown): number => new TextEncoder().encode(JSON.stringify(v)).length
+
+// The session's records, loaded once a load; a store that fails keeps them
+// in memory alone.
+let kept: { id: string; prompts: Promise<ReviewPrompt[]> } | null = null
+async function promptsOf($: EngineInterface): Promise<{ id: string; prompts: ReviewPrompt[] }> {
+  const id = await $.session.id().catch(() => '')
+  if (kept?.id !== id) {
+    kept = { id, prompts: $.store.get(storeKey(id)).then(v => keptOf(v)?.prompts ?? [], () => []) }
+  }
+  return { id, prompts: await kept.prompts }
+}
+
+// Written whole, the oldest records dropped first until it fits.
+async function keep($: EngineInterface, id: string, prompts: ReviewPrompt[]): Promise<void> {
+  let drop = 0
+  while (drop < prompts.length && bytes(prompts.slice(drop)) > SESSION_BYTES) drop += Math.max(1, Math.ceil((prompts.length - drop) / 8))
+  if (drop > 0) prompts.splice(0, drop)
+  await $.store.set(storeKey(id), { at: await $.clock.now(), prompts }).catch(() => undefined)
+}
+
+// The sessions written longest ago go, past SESSIONS_KEPT; this one's record
+// is never deleted, only written.
+async function prune($: EngineInterface): Promise<void> {
+  const own = storeKey((await promptsOf($)).id)
+  const others = (await $.store.keys()).filter(k => k.startsWith('prompts:') && k !== own)
+  if (others.length < SESSIONS_KEPT) return
+  const dated = await Promise.all(others.map(async k => ({ k, at: keptOf(await $.store.get(k).catch(() => null))?.at ?? 0 })))
+  dated.sort((a, b) => a.at - b.at)
+  for (const { k } of dated.slice(0, dated.length - (SESSIONS_KEPT - 1))) await $.store.delete(k)
+}
+
+// Recorded before the prompt goes on, so its row finds the record as it is
+// appended; a prompt that never entered is forgotten.
+async function remember($: EngineInterface, e: PromptSubmitInput): Promise<ReviewPrompt | null> {
+  if (e.command) return null // a slash command's row is its own record
+  const { prompts } = await promptsOf($)
+  const record: ReviewPrompt = { text: promptKey(e.text), ...sourceOf(e.origin), ...(e.turnId !== undefined && { during: true as const }) }
+  prompts.push(record)
+  return record
+}
+
+async function settled($: EngineInterface, record: ReviewPrompt, result: PromptSubmitResult): Promise<void> {
+  const { id, prompts } = await promptsOf($)
+  const at = prompts.indexOf(record)
+  if (result.drop !== undefined) {
+    if (at >= 0) prompts.splice(at, 1)
+  } else if (!record.landed && record.after === undefined) record.text = promptKey(result.text)
+  await keep($, id, prompts)
+}
+
+// The print of the last row the conversation keeps and `$.session.messages()`
+// reads, followed row by row as each is appended, and the session it was
+// read in. A reload starts it unknown and a /clear (a new session id) leaves
+// it another session's: either way it is read back from the messages.
+const tail: { id: string | null; print: string | null } = { id: null, print: null }
+
+const lastPrint = (messages: readonly SessionMessage[]): string | null => {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const print = messagePrint(messages[i]!)
+    if (print !== null) return print
+  }
+  return null
+}
+
+async function anchor($: EngineInterface, id: string): Promise<string> {
+  if (tail.id !== id) {
+    // after a reload the rows followed since are this session's; after a
+    // /clear they may be the last one's, so the messages decide
+    const read = lastPrint(await $.session.messages().catch(() => []))
+    tail.print = (tail.id === null ? tail.print : null) ?? read
+    tail.id = id
+  }
+  return tail.print ?? START
+}
+
+// A row as it is appended: a readable row moves the print on; a prompt's row
+// marks its record landed, matched by its opening, and a hidden one (a
+// scheduled prompt, a prompt or notification folded into a running turn)
+// marks each record its text holds as landed after the last readable row.
+async function placeRow($: EngineInterface, door: string, row: SessionAppendMessage): Promise<void> {
+  // a queue record's text is no row of the conversation, and a row no
+  // request carries (a virtual one) is none $.session.messages() reads
+  const readable = door !== 'queue' && (row.type === 'user' || row.type === 'assistant') && row.role !== undefined
+  const hidden = row.type === 'attachment' || (row.type === 'user' && row.isMeta === true)
+  if (readable && !hidden) tail.print = blocksPrint(row.type === 'user' ? 'user' : 'assistant', row.content) ?? tail.print
+  if ((door !== 'prompt' && door !== 'delivery') || (row.type !== 'user' && row.type !== 'attachment')) return
+  if (row.content.some(b => b.type === 'tool_result')) return
+  const text = blocksText(row.content)
+  if (text.trim() === '') return
+  const key = promptKey(text)
+  // a row's own words first, then a prompt its row opens with (context added
+  // after it), and for a hidden row a prompt it quotes, if that is long enough
+  // to be told from the words around it
+  const opens = (p: ReviewPrompt): boolean => key.startsWith(p.text)
+  const quotes = (p: ReviewPrompt): boolean => opens(p) || (p.text.length >= 12 && text.includes(p.text.slice(0, 120)))
+  const { id, prompts } = await promptsOf($)
+  const open = prompts.filter(p => !p.landed && p.after === undefined && p.text !== '')
+  if (!hidden) {
+    const record = open.findLast(p => p.text === key) ?? open.findLast(opens)
+    if (!record) return
+    record.landed = true
+    record.text = key
+  } else {
+    // folded into a running turn, a prompt was sent while one ran
+    const held = open.filter(p => quotes(p) && (door === 'prompt' || p.during))
+    if (held.length === 0) return
+    const after = await anchor($, id)
+    for (const p of held) {
+      p.after = after
+      if (door === 'prompt') p.starts = true
+    }
+  }
+  await keep($, id, prompts)
+}
+
 async function refresh($: EngineInterface): Promise<void> {
-  const snap = buildSnapshot(await $.session.messages())
+  const snap = buildSnapshot(await $.session.messages(), (await promptsOf($)).prompts)
   await update($, snapshot, () => snap)
   await update($, view, v => (isFollowing(snap, v) ? catchUp(snap, v) : v))
 }
@@ -246,8 +381,20 @@ export const register: Register = (on, options) => {
     // a headless run has no surface to draw on, so it never opens unasked
     if (options.openOnStart && (await $.session.surfaces()).length > 0) void open($)
 
-    return next(e)
+    const result = await next(e)
+    await prune($).catch(() => undefined)
+    return result
   })
+
+  // Observes only: who sent the prompt and whether a turn was running, so an
+  // exchange begins only at a prompt of the person's.
+  on('prompt.submit', async ($, e, next) => {
+    const record = await remember($, e).catch(() => null)
+    const result = await next(e)
+    if (record) await settled($, record, result).catch(() => undefined)
+
+    return result
+  }).catch(($, e, next) => next(e)) // whatever fails here, the prompt goes on as sent
 
   on('command.run', { command: 'claude-review' }, async $ => {
     if (await isOpen($)) {
@@ -277,7 +424,8 @@ export const register: Register = (on, options) => {
   // the transcript file; a closed pane reads nothing
   on('session.append', async ($, e, next) => {
     const stored = await next(e)
-    if (e.agentId === undefined && (e.door === 'prompt' || e.door === 'response' || e.door === 'tool-result')) soon($)
+    if (e.agentId === undefined && stored.message) await placeRow($, e.door, stored.message).catch(() => undefined)
+    if (e.agentId === undefined && (e.door === 'prompt' || e.door === 'delivery' || e.door === 'response' || e.door === 'tool-result')) soon($)
 
     return stored
   })

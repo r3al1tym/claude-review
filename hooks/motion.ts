@@ -106,7 +106,9 @@ export function settleFrame(from: Page, to: Page, t: number, deep = true): Uint3
   const centre = col.left + half
   for (let y = 0; y < to.rows; y++) {
     const at = y * rowLen
-    const same = from.cells.subarray(at, at + rowLen).every((v, i) => v === to.cells[at + i])
+    // a row whose words are unchanged lands at once, its stretch of the
+    // fore-edge with it, so a reply that grows below relights only what is new
+    const same = from.cells.subarray(at, at + rowLen - (to.edge ?? 0) * 3).every((v, i) => v === to.cells[at + i])
     const start = starts[y]!
     for (let i = at; i < at + rowLen; i += 3) {
       if (same || t >= start + RISE_MS) {

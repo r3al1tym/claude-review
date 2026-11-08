@@ -16,6 +16,7 @@ import type { Light } from './motion'
 import type { Column, Page } from './paint'
 import { cells, clip, oneline, spanCells, wrap } from './text'
 import type { Span, Style } from './text'
+import { hasText, replyMarkdown } from './transcript'
 
 export const MEASURE = 72
 
@@ -75,6 +76,38 @@ const note = (text: string): Surface => ({
   raw: '',
 })
 
+// The reply as rows, every stretch of it in order: a later prompt of the
+// person's sits where it arrived, set as an earlier turn's prompt leads its
+// page, and a background turn's reply sits under one quiet line naming what
+// set it off, with air above it and none below, as a heading sits on its text.
+// Laid out once per width and reply, as the markdown is, the reply known by
+// its sig.
+const repliesLaid = new Map<string, Line[]>()
+
+function replyLines(turn: ReviewTurn, width: number): Line[] {
+  const key = `${width}\u0000${turn.sig}`
+  const hit = repliesLaid.get(key)
+  if (hit) return hit
+  const out: Line[] = []
+  for (const part of turn.parts) {
+    const body = part.texts.join('\n\n')
+    if (part.cue?.kind === 'prompt') {
+      if (out.length > 0) out.push(blank())
+      out.push(...promptRows(part.cue.text, width, INK.question).map(textLine))
+      if (body) out.push(blank())
+    } else if (part.cue?.kind === 'background') {
+      if (out.length > 0) out.push(blank())
+      out.push(textLine([{ text: clip(oneline(part.cue.text), width), style: { color: INK.quiet, italic: true } }]))
+    } else if (body && out.length > 0) {
+      out.push(blank())
+    }
+    if (body) out.push(...layout(body, width))
+  }
+  if (repliesLaid.size >= 8) repliesLaid.delete(repliesLaid.keys().next().value!)
+  repliesLaid.set(key, out)
+  return out
+}
+
 // Ordered surfaces for whatever this turn produced, as the CLI builds them:
 // what Claude is blocked on leads (a plan awaiting approval, a question),
 // then the response, a plan already approved, the tasks.
@@ -83,7 +116,7 @@ export function surfacesFor(turn: ReviewTurn, tasks: readonly ReviewTask[], hist
   const out: Surface[] = []
   if (turn.plan && turn.planWaiting) out.push(md('plan', turn.plan))
   if (turn.ask) out.push(md('question', turn.ask))
-  if (turn.text) out.push(md('response', turn.text))
+  if (hasText(turn)) out.push({ label: 'response', lines: width => replyLines(turn, width), raw: replyMarkdown(turn) })
   if (turn.plan && !turn.planWaiting) out.push(md('plan', turn.plan))
   if (tasks.length > 0) {
     out.push({ label: 'tasks', lines: width => taskLines(tasks, width), raw: tasks.map(t => `[${t.status}] ${t.content}`).join('\n') })

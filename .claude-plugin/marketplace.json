@@ -9,6 +9,7 @@
     {
       "name": "review-pane",
       "source": "./",
+      "version": "1.2.0",
       "description": "claude review: the session's latest reply in a calm reading pane docked beside the conversation"
     }
   ]

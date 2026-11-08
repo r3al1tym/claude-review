@@ -4,7 +4,7 @@ Thanks for looking at `claude-review`. It is a small Claude Code mod on purpose,
 
 ## Ground rules
 
-- **Read-only.** The mod reads the conversation and draws a pane. It writes nothing to the session, makes no network calls and touches no files. If a feature seems to need one of those, open an issue first.
+- **Read-only.** The mod reads the conversation and draws a pane. It writes nothing to the session, makes no network calls and touches no files beyond its own plugin store (`$.store`), where it keeps who sent each prompt. If a feature seems to need one of those, open an issue first.
 - **Treat conversation text as untrusted.** A reply can quote anything Claude read. Control and escape bytes are stripped before anything is drawn (`clean` and `oneline` in `hooks/text.ts`); keep it that way.
 - **One look.** The pane is greyscale chrome with one accent colour, cyan, for the state you set (frozen, new reply). Emphasis comes from weight.
 

@@ -1,6 +1,6 @@
 {
   "name": "review-pane",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "claude review: the session's latest reply in a calm reading pane docked beside the conversation, with its plan, question and tasks one key away",
   "author": { "name": "r3al1tym", "url": "https://github.com/r3al1tym" },
   "homepage": "https://github.com/r3al1tym/claude-review",

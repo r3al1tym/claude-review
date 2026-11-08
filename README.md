@@ -33,6 +33,8 @@ For one session only: `claude --plugin-dir ~/src/claude-review`.
 
 The pane follows the live turn. Give it the keyboard with ctrl+x then Tab (until you do, its key row says `ctrl+x ⇥ focus`), and Esc hands the keys back.
 
+A turn is one exchange: a prompt you sent and every reply Claude wrote to it, the intermediate ones included. A prompt you send while Claude works joins the exchange where Claude takes it into the running turn, and replies to scheduled prompts, task notifications and other sessions' messages follow your answer under a quiet line naming what set them off.
+
 | Keys | What they do |
 | --- | --- |
 | `h` `l` | earlier / later turn; an earlier turn leads with the prompt it answered |
@@ -52,13 +54,13 @@ To change the default, set *Open on start* in `/config` (on: the pane opens by i
 
 ## How it works
 
-The mod reads the conversation through the hooks API (`$.session.messages()`) and refreshes as rows land (`session.append`), so the pane updates while Claude writes, not only when a turn ends. It writes nothing to the session, makes no network calls and touches no files; `y` puts text on your clipboard through Claude Code.
+The mod reads the conversation through the hooks API (`$.session.messages()`) and refreshes as rows land (`session.append`), so the pane updates while Claude writes, not only when a turn ends. The conversation does not say who sent each prompt, so the mod notes each prompt's origin as it is sent (`prompt.submit`) and keeps that record in its own plugin store, per session, so a resumed session keeps it. It writes nothing to the session and makes no network calls; `y` puts text on your clipboard through Claude Code.
 
 In the terminal it lays out its own rows (`hooks/markdown.ts`, `hooks/screen.tsx`): a monochrome markdown theme where emphasis comes from weight and a grey ramp, code included (`hooks/syntax.ts`: keywords bold, strings a step down, comments quiet and italic), a column of at most 72 cells, the lamp on top and one key row at the bottom. The lamp in motion, the settle and the fore-edge are `Raster` cells repainted by `$.ui.blit` on a timer (`hooks/paint.ts`, `hooks/motion.ts`), so motion never redraws the pane; a Raster paints at 12-bit colour, so the whole palette is 12-bit and a painted page matches the Text one exactly. A lamp at rest is drawn as Text, at full colour depth, so its light runs smooth along the filament, and the ember burns one even colour. The desktop app and VS Code draw the same reply with their own Markdown and buttons.
 
 ## Limitations
 
-- **Early access.** Function hooks are an early-access Claude Code surface that may change between releases. This version is checked against Claude Code 2.1.287 with `claude plugin validate .` and `claude plugin test .`.
+- **Early access.** Function hooks are an early-access Claude Code surface that may change between releases. This version is checked against Claude Code 2.1.319 with `claude plugin validate .` and `claude plugin test .`.
 - **Letter keys.** A pane's keys are letters and digits, so the guide is `m` and surfaces are `t`, and the pane needs the keyboard (ctrl+x then Tab) before they work.
 - **No horizontal scroll.** Wide tables shrink their widest columns and wrap; long code lines wrap with a hanging indent.
 - **Colour depth.** The lamp and the settle are smoothest where Claude Code paints true colour. Under tmux, or without `COLORTERM=truecolor`, it paints 256 colours: the lamp keeps three palette colours and breathes by its weight, and the settle and a waiting question stay grey, since that palette's nearest warm greys are pinks.
