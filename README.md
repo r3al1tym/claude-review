@@ -37,7 +37,7 @@ A turn is one exchange: a prompt you sent and every reply Claude wrote to it, th
 
 | Keys | What they do |
 | --- | --- |
-| `h` `l` | earlier / later turn; an earlier turn leads with the prompt it answered |
+| `h` `l` | earlier / later turn; an earlier turn leads with the prompt it answered and holds the view frozen |
 | `↑` `↓` `j` `k`, wheel, PgUp PgDn, Home End, `g` | scroll |
 | `f` | freeze the view while Claude keeps working; again to unfreeze |
 | `r` | jump to the latest reply; the key row shows `r latest` whenever you are off it |
