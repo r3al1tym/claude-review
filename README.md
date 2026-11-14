@@ -60,10 +60,6 @@ In the terminal it lays out its own rows (`hooks/markdown.ts`, `hooks/screen.tsx
 - **Letter keys.** A pane's keys are letters and digits, so the guide is `m` and surfaces are `t`, and the pane needs the keyboard (ctrl+x then Tab) before they work.
 - **No horizontal scroll.** Wide tables shrink their widest columns and wrap.
 
-## The standalone CLI
-
-claude-review began as a Python TUI you ran in a second terminal pane. The mod replaces it. Its last release, v0.5.3, still installs with `pipx install git+https://github.com/r3al1tym/claude-review@v0.5.3`, and its source lives at that tag.
-
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the development loop. Security posture and how to report a vulnerability are in [SECURITY.md](SECURITY.md); the project follows a [Code of Conduct](CODE_OF_CONDUCT.md).
