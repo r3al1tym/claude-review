@@ -129,14 +129,14 @@ export function surfacesFor(turn: ReviewTurn, tasks: readonly ReviewTask[], hist
 // ---------------------------------------------------------------- the guide
 
 const HELP_INTRO = ' shows this session\'s latest reply, rendered for reading, beside the conversation. '
-  + 'It follows the live turn until you freeze it or step back into an earlier turn. '
+  + 'It follows the live turn until you freeze it; stepping back to an earlier turn freezes it too. '
   + 'It only reads the conversation; nothing here writes to the session.'
 
 type HelpRow = [readonly string[], string]
 
 const HELP_GROUPS: readonly [string, readonly HelpRow[]][] = [
   ['MOVE', [[['h', 'l'], 'earlier / later turn'], [['↑ ↓', 'j k'], 'scroll a line'], [['pgup', 'pgdn'], 'scroll a page'], [['g'], 'top']]],
-  ['HOLD', [[['f'], 'freeze this view'], [['r'], 'jump to the latest reply']]],
+  ['HOLD', [[['f'], 'freeze / unfreeze'], [['r'], 'jump to the latest reply']]],
   ['SURFACES', [[['t'], 'next surface'], [['y'], 'copy this surface']]],
   ['PANE', [[['ctrl+x ⇥'], 'give the pane the keys'], [['esc'], 'hand them back'], [['q'], 'close the pane'], [['m'], 'close this guide']]],
 ]
@@ -286,8 +286,9 @@ function keyRow(s: ScreenInput, col: Column, surfaces: readonly Surface[], activ
     if (s.view.help) return [{ text: '↑↓ scroll · m close', style: meta }]
     if (s.view.flash) return [{ text: `✓ ${s.view.flash}`, style: { color: INK.bright } }]
     if (!s.isFocused) return [{ text: 'ctrl+x ⇥ focus', style: meta }]
-    // off the latest reply (an earlier turn, or a newer reply behind a hold), r leads: it is the way back
-    const cues = [...(s.historical || s.behind ? ['r latest'] : []), s.view.frozen ? 'f unfreeze' : 'f freeze', ...(s.turnCount > 1 ? ['h l turns'] : []), 'm keys']
+    // off the latest reply (an earlier turn, or a newer reply behind a hold), the cue is the way back
+    const hold = s.historical || s.behind ? 'r latest' : s.view.frozen ? 'f unfreeze' : 'f freeze'
+    const cues = [hold, ...(s.turnCount > 1 ? ['h l turns'] : []), 'm keys']
     return [{ text: cues.join(' · '), style: meta }]
   })()
 

@@ -8,6 +8,7 @@ All notable changes to this project are documented here. The format is based on
 
 ### Added
 - **`r latest` in the key row.** Whenever the pane is off the latest reply (on an earlier turn, or held while a newer reply landed), the key row leads with `r latest`, and `r` jumps straight to it.
+- **Stepping back freezes the view.** `h` to an earlier turn holds it (the key row says `frozen`) while new replies land; `l` back to the end, `r` or `f` returns to the live turn.
 
 ### Changed
 - **A turn is an exchange with you.** An exchange begins only at a prompt you sent, and it keeps every text Claude wrote in it, the intermediate ones included. A prompt you send while Claude works joins the exchange where Claude takes it into the running turn, on its own `›` line; one that waits for the turn to end and runs on its own begins the next exchange. A reply to a scheduled prompt, a task notification or another session's message follows your answer under one quiet line naming what set it off (*after a scheduled prompt*); a background turn with no text adds nothing. `h` and `l` step between your exchanges, and the turns before your first prompt in the session stay as they were. The pane records who sent each prompt in its own plugin store, per session, so a resumed session keeps it; history from before that is read by its words: a task notification and another session's message or notice are background, and any other text, `[Image #1]` included, is yours.

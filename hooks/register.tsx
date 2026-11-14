@@ -245,22 +245,23 @@ const show = (snap: ReviewSnapshot, v: ReviewView, index: number): ReviewView =>
   return { ...v, index: at, held: v.frozen ? (snap.turns[at] ?? null) : null, surface: 0, scroll: 0 }
 }
 
+// Stepping back freezes the view: an earlier turn is held until you come back
+// to the latest (l at the end, r, or f), which follows the live turn again.
 const earlier = (snap: ReviewSnapshot, v: ReviewView): ReviewView => {
   const { cursor } = onScreen(snap, v)
-  return cursor > 0 ? show(snap, v, cursor - 1) : v
+  return cursor > 0 ? show(snap, { ...v, frozen: true }, cursor - 1) : v
 }
 
 const later = (snap: ReviewSnapshot, v: ReviewView): ReviewView => {
   const { cursor } = onScreen(snap, v)
   if (cursor >= latest(snap)) return v
-  return cursor + 1 === latest(snap) && !v.frozen ? catchUp(snap, v) : show(snap, v, cursor + 1)
+  return cursor + 1 === latest(snap) ? catchUp(snap, v) : show(snap, v, cursor + 1)
 }
 
 const freeze = (snap: ReviewSnapshot, v: ReviewView): ReviewView => {
   if (!v.frozen) return { ...v, frozen: true, held: onScreen(snap, v).turn }
-  const thawed = { ...v, frozen: false, held: null }
-  // unfreezing on the live turn resumes it
-  return onScreen(snap, thawed).cursor >= latest(snap) ? catchUp(snap, thawed) : thawed
+  // unfreezing, on any turn, resumes the live one
+  return catchUp(snap, { ...v, frozen: false, held: null })
 }
 
 const scrollBy = (n: number) => (_: ReviewSnapshot, v: ReviewView): ReviewView => ({ ...v, scroll: clampScroll(v.scroll + n) })
