@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.2.0] — 2026-11-13
 
 ### Added
 - **`r latest` in the key row.** Whenever the pane is off the latest reply (on an earlier turn, or held while a newer reply landed), the key row leads with `r latest`, and `r` jumps straight to it.
