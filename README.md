@@ -40,7 +40,7 @@ A turn is one exchange: a prompt you sent and every reply Claude wrote to it, th
 | `h` `l` | earlier / later turn; an earlier turn leads with the prompt it answered |
 | `↑` `↓` `j` `k`, wheel, PgUp PgDn, Home End, `g` | scroll |
 | `f` | freeze the view while Claude keeps working; again to unfreeze |
-| `r` | back to the live turn |
+| `r` | jump to the latest reply; the key row shows `r latest` whenever you are off it |
 | `t` | next surface: plan, question, response, tasks, whichever this turn has |
 | `y` | copy the surface shown |
 | `m` | the guide: every key, plus the session's diagnostics |

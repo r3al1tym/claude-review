@@ -132,7 +132,7 @@ test('scrolling moves the column under the pinned lamp and key row', async ($, o
   await ui.unmount()
 })
 
-test('h steps back with the prompt it answered, l returns to live, f freezes', async ($, on) => {
+test('h steps back with the prompt it answered, r jumps to the latest, l returns to live, f freezes', async ($, on) => {
   fakePanes(on)
   light(on)
   on('session.messages', () => ({ value: SESSION }))
@@ -143,7 +143,13 @@ test('h steps back with the prompt it answered, l returns to live, f freezes', a
   expect(await ui.find({ type: 'Text', text: '› first ask' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'First answer' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Turn 1 of 2' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'r latest · f freeze · h l turns · m keys' })).toBeDefined()
+  await ui.press({ key: 'key-h' })
+  await ui.press({ key: 'key-r' })
+  expect(await ui.find({ type: 'Text', text: 'Second answer, the latest.' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /r latest/ })).toBeUndefined()
 
+  await ui.press({ key: 'key-h' })
   await ui.press({ key: 'key-l' })
   expect(await ui.find({ type: 'Text', text: 'Second answer, the latest.' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '› second ask' })).toBeUndefined()
