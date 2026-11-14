@@ -65,10 +65,6 @@ In the terminal it lays out its own rows (`hooks/markdown.ts`, `hooks/screen.tsx
 - **No horizontal scroll.** Wide tables shrink their widest columns and wrap; long code lines wrap with a hanging indent.
 - **Colour depth.** The lamp and the settle are smoothest where Claude Code paints true colour. Under tmux, or without `COLORTERM=truecolor`, it paints 256 colours: the lamp keeps three palette colours and breathes by its weight, and the settle and a waiting question stay grey, since that palette's nearest warm greys are pinks.
 
-## The standalone CLI
-
-claude-review began as a Python TUI you ran in a second terminal pane. The mod replaces it. Its last release, v0.5.3, still installs with `pipx install git+https://github.com/r3al1tym/claude-review@v0.5.3`, and its source lives at that tag.
-
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the development loop. Security posture and how to report a vulnerability are in [SECURITY.md](SECURITY.md); the project follows a [Code of Conduct](CODE_OF_CONDUCT.md).
