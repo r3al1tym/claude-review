@@ -43,6 +43,8 @@ A turn is one exchange: a prompt you sent and every reply Claude wrote to it, th
 | `r` | jump to the latest reply; the key row shows `r latest` whenever you are off it |
 | `t` | next surface: plan, question, response, tasks, whichever this turn has |
 | `y` | copy the surface shown |
+| `a` | ask about what you see, beside the session; Enter asks, Esc closes the field |
+| `s` | send that side question to the session as your prompt |
 | `m` | the guide: every key, plus the session's diagnostics |
 | `q` | close the pane |
 
@@ -54,7 +56,9 @@ To change the default, set *Open on start* in `/config` (on: the pane opens by i
 
 ## How it works
 
-The mod reads the conversation through the hooks API (`$.session.messages()`) and refreshes as rows land (`session.append`), so the pane updates while Claude writes, not only when a turn ends. The conversation does not say who sent each prompt, so the mod notes each prompt's origin as it is sent (`prompt.submit`) and keeps that record in its own plugin store, per session, so a resumed session keeps it. It writes nothing to the session and makes no network calls; `y` puts text on your clipboard through Claude Code.
+The mod reads the conversation through the hooks API (`$.session.messages()`) and refreshes as rows land (`session.append`), so the pane updates while Claude writes, not only when a turn ends. The conversation does not say who sent each prompt, so the mod notes each prompt's origin as it is sent (`prompt.submit`) and keeps that record in its own plugin store, per session, so a resumed session keeps it. It writes nothing to the session unless you press `s`; `y` puts text on your clipboard through Claude Code.
+
+A side question (`a`) runs `$.model.fork`: one tool-less completion over the session's own transcript as the main thread last sent it, served from the prompt cache, with the question and the rows you see appended. Its reply goes to the pane alone, so the main turn and the conversation never see it. One runs at a time, as with `/btw`.
 
 In the terminal it lays out its own rows (`hooks/markdown.ts`, `hooks/screen.tsx`): a monochrome markdown theme where emphasis comes from weight and a grey ramp, code included (`hooks/syntax.ts`: keywords bold, strings a step down, comments quiet and italic), a column of at most 72 cells, the lamp on top and one key row at the bottom. The lamp in motion, the settle and the fore-edge are `Raster` cells repainted by `$.ui.blit` on a timer (`hooks/paint.ts`, `hooks/motion.ts`), so motion never redraws the pane; a Raster paints at 12-bit colour, so the whole palette is 12-bit and a painted page matches the Text one exactly. A lamp at rest is drawn as Text, at full colour depth, so its light runs smooth along the filament, and the ember burns one even colour. The desktop app and VS Code draw the same reply with their own Markdown and buttons.
 

@@ -143,7 +143,7 @@ test('h steps back and freezes, r jumps to the latest, l returns to live, f free
   expect(await ui.find({ type: 'Text', text: '› first ask' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'First answer' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Turn 1 of 2' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'r latest · h l turns · m keys' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'r latest · h l turns · a ask · m keys' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^frozen/ })).toBeDefined()
   await ui.press({ key: 'key-h' })
   await ui.press({ key: 'key-r' })
@@ -553,7 +553,7 @@ test('a notification after an answer keeps the answer, under it and labelled', a
   expect(await ui.find({ type: 'Text', text: 'after a task notification' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'The build finished cleanly.' })).toBeDefined()
   // one exchange: the notification is no turn of its own to step to
-  expect(await ui.find({ type: 'Text', text: 'f freeze · m keys' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'f freeze · a ask · m keys' })).toBeDefined()
   await ui.unmount()
 })
 
@@ -584,7 +584,7 @@ test('a scheduled prompt never becomes the live exchange; its reply lands under 
   expect(await ui.find({ type: 'Text', text: 'Sweep: two workers are still running.' })).toBeDefined()
   expect(await texts(ui, /after a scheduled prompt/)).toBe(1)
   // still the person's one exchange: no earlier turn to step to, none later
-  expect(await ui.find({ type: 'Text', text: 'f freeze · m keys' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'f freeze · a ask · m keys' })).toBeDefined()
   await ui.press({ key: 'key-h' })
   expect(await ui.find({ type: 'Text', text: /Turn 1 of/ })).toBeUndefined()
   await ui.unmount()
@@ -787,7 +787,7 @@ test('the page reads as one exchange: the answer, a later prompt where it arrive
     '    Sweep: the two workers are still running.',
     '', '', '', '',
     '',
-    '    done                                   f freeze · m keys',
+    '    done                           f freeze · a ask · m keys',
   ])
   // no new colours: the label in the quiet italic of the running head, the
   // later prompt in the ink an earlier turn's prompt leads with
@@ -1008,4 +1008,103 @@ test('a session\'s record is capped by bytes, the oldest dropped, so the store n
   expect(new TextEncoder().encode(JSON.stringify(stored.prompts)).length).toBeLessThanOrEqual(64 * 1024)
   expect(stored.prompts.at(-1)?.text.startsWith('119 ')).toBe(true)
   expect(ops.filter(o => o === 'set prompts:test-session').length).toBeGreaterThan(100)
+})
+
+// ---------------------------------------------------------------- side questions
+
+const USAGE = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+
+function sides(on: On, answer: { isAnswered: true; text: string } | { isAnswered: false; reason: string; status?: number }) {
+  const forks: string[] = []
+  const sent: string[] = []
+  on('model.fork', (_$, e) => {
+    forks.push(e.prompt)
+    return { value: { ...answer, usage: USAGE } } as never
+  })
+  on('prompt.submit', (_$, e) => {
+    sent.push(String(e.text))
+    return { drop: 'test' } as never
+  })
+  on('ui.focus', () => ({ value: {} }) as never)
+  return { forks, sent }
+}
+
+test('a asks about what is in view: the view freezes, a fork answers into the aside, and the session gets nothing', async ($, on) => {
+  fakePanes(on)
+  light(on)
+  on('session.messages', () => ({ value: SESSION }))
+  const { forks, sent } = sides(on, { isAnswered: true, text: 'It means the second turn finished.' })
+  await $.command.run(TOGGLE)
+
+  const ui = await mountTerminal($)
+  await ui.press({ key: 'key-h' }) // the first turn, frozen
+  await ui.press({ key: 'key-a' })
+  expect(await ui.find({ key: 'ask' })).toBeDefined()
+  // the field takes the key row's place
+  expect(await ui.find({ type: 'Text', text: /m keys/ })).toBeUndefined()
+  await ui.input({ key: 'ask', text: 'what does all done cover?' })
+
+  expect(forks.length).toBe(1)
+  expect(forks[0]).toContain('Turn 1 of 2, which answered the prompt: "first ask"')
+  expect(forks[0]).toContain('All done.')
+  expect(forks[0]).toContain('Question: what does all done cover?')
+  expect(sent).toEqual([])
+  // the aside leads, the question set as a prompt above its answer
+  expect(await ui.find({ type: 'Text', text: /› what does all done cover\?/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /It means the second turn finished\./ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /t response · aside|t aside/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /s send/ })).toBeDefined()
+
+  // a follow-up carries the earlier exchange
+  await ui.press({ key: 'key-a' })
+  await ui.input({ key: 'ask', text: 'and the first part?' })
+  expect(forks[1]).toContain('Q: what does all done cover?')
+  expect(forks[1]).toContain('A: It means the second turn finished.')
+
+  // s hands the last one to the session as the person's prompt, with its anchor
+  await ui.press({ key: 'key-s' })
+  expect(sent.length).toBe(1)
+  expect(sent[0]).toContain('and the first part?')
+  expect(sent[0]).toContain('Asked from the review pane about turn 1')
+  await ui.unmount()
+})
+
+test('a question asked on the live turn freezes it, so a reply that lands keeps the page you asked about', async ($, on) => {
+  fakePanes(on)
+  light(on)
+  let messages = SESSION
+  on('session.messages', () => ({ value: messages }))
+  on('turn.complete', () => ({ text: '' }))
+  sides(on, { isAnswered: true, text: 'Yes.' })
+  await $.command.run(TOGGLE)
+
+  const ui = await mountTerminal($)
+  await ui.press({ key: 'key-a' })
+  messages = [...SESSION, prompt('third ask'), reply('Third answer.')]
+  await $.turn.complete(turnEnd)
+  await ui.input({ key: 'ask', text: 'is that final?' })
+  expect(await ui.find({ type: 'Text', text: /^frozen/ })).toBeDefined()
+  await ui.press({ key: 'key-t' }) // back to the response the question was about
+  expect(await ui.find({ type: 'Text', text: /Second answer, the latest\./ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a fork with no answer says why, and an empty question closes the field', async ($, on) => {
+  fakePanes(on)
+  light(on)
+  on('session.messages', () => ({ value: SESSION }))
+  const { forks } = sides(on, { isAnswered: false, reason: 'api-error', status: 529 })
+  await $.command.run(TOGGLE)
+
+  const ui = await mountTerminal($)
+  await ui.press({ key: 'key-a' })
+  await ui.input({ key: 'ask', text: '   ' })
+  expect(forks.length).toBe(0)
+  expect(await ui.find({ key: 'ask' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /m keys/ })).toBeDefined() // the key row is back
+
+  await ui.press({ key: 'key-a' })
+  await ui.input({ key: 'ask', text: 'why?' })
+  expect(await ui.find({ type: 'Text', text: /No answer: api-error 529\./ })).toBeDefined()
+  await ui.unmount()
 })

@@ -66,12 +66,32 @@ export type ReviewView = {
   flash: string | null
 }
 
+// What a side question is about: the turn on screen when you pressed a, the
+// section and the rows in view then, so the answer holds after a compaction
+// drops that turn from the session's context.
+export type ReviewAnchor = {
+  turn: number
+  prompt: string | null
+  surface: string
+  section: string | null
+  passage: string
+}
+
+// One side question and its answer, null while the fork runs; `failed` says
+// why there is none.
+export type ReviewAsk = { at: number; anchor: ReviewAnchor; question: string; answer: string | null; failed?: string }
+
+// Side questions, answered by a fork of the session beside the main thread:
+// the anchor while you type one, and every one asked this load.
+export type ReviewAside = { asking: ReviewAnchor | null; asks: ReviewAsk[] }
+
 declare module 'claude-code' {
   interface PluginState {
     'review-pane': {
       snapshot: Shaped<ReviewSnapshot>
       view: Shaped<ReviewView>
       working: string[]
+      aside: ReviewAside
     }
   }
 }

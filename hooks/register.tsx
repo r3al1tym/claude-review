@@ -1,7 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, PromptSubmitInput, PromptSubmitResult, Register, SessionAppendMessage, SessionMessage, UiPressArgument } from 'claude-code'
 
-import type { ReviewPrompt, ReviewSnapshot, ReviewTurn, ReviewView } from '../types'
+import type { ReviewAnchor, ReviewAside, ReviewAsk, ReviewPrompt, ReviewSnapshot, ReviewTurn, ReviewView } from '../types'
+import { PASSAGE_MAX, asidePrompt, asksFor, sessionPrompt } from './aside'
 import { SETTLE_MS, lampLight, lampMoving, relight, settleFrame } from './motion'
 import type { Lamp, LampState } from './motion'
 import { encode, paintLamp } from './paint'
@@ -20,12 +21,14 @@ const snapshot = atom({ plugin: 'review-pane', key: 'snapshot' } as const, { tur
 const view = atom({ plugin: 'review-pane', key: 'view' } as const, FIRST_VIEW, SHAPE)
 // the ids of the turns running now: the main one and any agent's
 const working = atom({ plugin: 'review-pane', key: 'working' } as const, [])
+const aside = atom({ plugin: 'review-pane', key: 'aside' } as const, { asking: null, asks: [] } as ReviewAside)
 
 // The last layout drawn, so a scroll or a key clamps to the content it moves
 // over. A cache only: a reload starts it over and the next draw refills it.
 let laid: Laid = {
   maxScroll: Number.MAX_SAFE_INTEGER, bodyRows: 10, surfaces: [], active: 0,
   column: { left: 0, measure: 0 }, page: { columns: 0, rows: 0, cells: new Uint32Array(0) },
+  seen: { surface: 'response', section: null, passage: '' },
 }
 
 const latest = (snap: ReviewSnapshot): number => Math.max(0, snap.turns.length - 1)
@@ -232,6 +235,8 @@ const clampScroll = (n: number): number => Math.max(0, Math.min(n, laid.maxScrol
 // Every key closes a flash; with the guide up, any key but a scroll closes it.
 async function key($: EngineInterface, act: (snap: ReviewSnapshot, v: ReviewView) => ReviewView, scrolls = false): Promise<void> {
   const snap = await read($, snapshot)
+  // a key reaches the pane only once Esc has left the field, which closes it
+  if (!scrolls) await update($, aside, a => (a.asking ? { ...a, asking: null } : a))
   await update($, view, v => {
     const base = { ...v, flash: null }
     if (base.help && !scrolls) return { ...base, help: false, scroll: 0 }
@@ -280,7 +285,90 @@ async function copySurface($: EngineInterface, press: UiPressArgument): Promise<
   await key($, (_, v) => ({ ...v, flash }))
 }
 
-const HOTKEYS = ['h', 'l', 'j', 'k', 'g', 'f', 'r', 't', 'y', 'm', 'q'] as const
+// ---------------------------------------------------------------- side questions
+
+const ASK_FIELD = 'ask'
+const ASIDE = Number.MAX_SAFE_INTEGER // the aside is the last surface, so this shows it
+const ASKS_KEPT = 40
+
+// a: the field opens in the key row, about what is in view now. A view that
+// follows the live turn freezes, so the page you ask about stays put.
+async function startAsk($: EngineInterface): Promise<void> {
+  if (!(await holdForAsk($))) return
+  await $.ui.focus({ requestId: PANE, key: ASK_FIELD }).catch(() => undefined)
+}
+
+// What is in view becomes the field's anchor, and the view holds it; false
+// when there is nothing to ask about.
+async function holdForAsk($: EngineInterface): Promise<boolean> {
+  const snap = await read($, snapshot)
+  const v = await read($, view)
+  if (v.help || snap.turns.length === 0) {
+    await key($, (_, w) => w)
+    return false
+  }
+  const shown = display(snap, v, (await read($, working)).length > 0)
+  const { turn } = shown
+  // a new prompt's page carries the last answer: the question is about that one
+  const cursor = shown.pending !== null ? shown.cursor - 1 : shown.cursor
+  const seen = laid.seen
+  // asked from the aside itself, the question is about the reply the aside follows
+  const fromAside = seen.surface === 'aside'
+  const anchor: ReviewAnchor = {
+    turn: cursor,
+    prompt: turn.question,
+    surface: fromAside ? 'response' : seen.surface,
+    section: fromAside ? null : seen.section,
+    passage: (fromAside ? laid.surfaces.find(sf => sf.label === 'response')?.raw ?? '' : seen.passage).slice(0, PASSAGE_MAX),
+  }
+  await key($, (_, w) => (w.frozen ? w : { ...w, frozen: true, index: cursor, held: turn }))
+  await update($, aside, a => ({ ...a, asking: anchor }))
+  return true
+}
+
+// A surface that draws its own field: the question and its anchor at once.
+async function askHere($: EngineInterface, text: string): Promise<void> {
+  if (text.trim() !== '' && (await holdForAsk($))) await ask($, text)
+}
+
+// Enter: the fork answers beside the session, into the aside. One at a time,
+// as /btw takes them; an empty question closes the field.
+async function ask($: EngineInterface, text: string): Promise<void> {
+  const question = text.trim()
+  const { asking, asks } = await read($, aside)
+  if (!asking) return
+  if (question === '') return void (await update($, aside, a => ({ ...a, asking: null })))
+  if (asks.some(a => a.answer === null && !a.failed)) {
+    await update($, view, v => ({ ...v, flash: 'one side question at a time' }))
+    return
+  }
+  const snap = await read($, snapshot)
+  const turn = snap.turns[asking.turn] ?? { question: asking.prompt } as ReviewTurn
+  const earlier = asksFor(asks, asking.turn, turn)
+  const entry: ReviewAsk = { at: await $.clock.now(), anchor: asking, question, answer: null }
+  await update($, aside, a => ({ asking: null, asks: [...a.asks, entry].slice(-ASKS_KEPT) }))
+  await update($, view, v => ({ ...v, surface: ASIDE, scroll: 0, flash: null }))
+
+  const settle = (patch: Partial<ReviewAsk>) => update($, aside, a => ({ ...a, asks: a.asks.map(x => (x.at === entry.at ? { ...x, ...patch } : x)) }))
+  const r = await $.model.fork({ prompt: asidePrompt(asking, earlier, question, snap.turns.length) }).catch((err: unknown) => ({
+    isAnswered: false as const, reason: err instanceof Error ? err.message : String(err),
+  }))
+  if (r.isAnswered) await settle({ answer: r.text.trim() })
+  else await settle({ failed: 'status' in r && r.status ? `${r.reason} ${r.status}` : r.reason })
+}
+
+// s: the last side question about this turn goes to the main session as your
+// prompt, with what it was about, for an answer that needs tools.
+async function sendAsk($: EngineInterface): Promise<void> {
+  const snap = await read($, snapshot)
+  const { turn, cursor } = display(snap, await read($, view), (await read($, working)).length > 0)
+  const last = asksFor((await read($, aside)).asks, cursor, turn).findLast(a => a.answer !== null || a.failed)
+  if (!last) return key($, (_, v) => ({ ...v, flash: 'no side question to send' }))
+  await $.prompt.submit({ text: sessionPrompt(last), asUser: true })
+  await key($, (_, v) => ({ ...v, flash: 'sent to the session' }))
+}
+
+const HOTKEYS = ['h', 'l', 'j', 'k', 'g', 'f', 'r', 't', 'y', 'm', 'q', 'a', 's'] as const
 
 async function pressKey($: EngineInterface, k: string, press: UiPressArgument): Promise<void> {
   switch (k) {
@@ -295,6 +383,8 @@ async function pressKey($: EngineInterface, k: string, press: UiPressArgument): 
     case 'y': return copySurface($, press)
     case 'm': return key($, (_, v) => (v.help ? v : { ...v, help: true, scroll: 0 }))
     case 'q': return $.ui.close({ id: PANE }).then(() => undefined)
+    case 'a': return startAsk($)
+    case 's': return sendAsk($)
   }
 }
 const hotkey = (k: string): string => `key-${k}`
@@ -447,8 +537,12 @@ export const register: Register = (on, options) => {
   })
 
   // the hotkeys ride on Buttons drawn hidden; the focus ring never lands on one
-  on('ui.focus', { requestId: PANE }, async ($, e, next) =>
-    (e.element?.startsWith('key-') ? { deny: 'a hotkey, not a control' } : next(e)))
+  on('ui.focus', { requestId: PANE }, async ($, e, next) => {
+    if (e.element?.startsWith('key-')) return { deny: 'a hotkey, not a control' }
+    // Esc, or the ring moving off the field, closes it
+    if (e.element !== ASK_FIELD) await update($, aside, a => (a.asking ? { ...a, asking: null } : a))
+    return next(e)
+  })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const E = $.ui.resolve(e)
@@ -457,6 +551,8 @@ export const register: Register = (on, options) => {
     const busy = (await read($, working)).length > 0
     const { turn, cursor, historical, prompt, pending } = display(snap, v, busy)
     const isLatest = !historical
+    const side = await read($, aside)
+    const asks = asksFor(side.asks, cursor, turn)
     const behind = !isFollowing(snap, v) && hasReply(snap) && replySig(snap) !== v.seen
 
     if (e.surface === 'terminal') {
@@ -516,14 +612,20 @@ export const register: Register = (on, options) => {
         still: !lampMoving(lamp, now),
         deep,
         waiting,
+        asks,
+        asking: side.asking !== null,
       }, paint)
       laid = drawn.laid
       if (lampMoving(lamp, now)) runLamp($)
-      const { Box, Button, Text } = T
+      const { Box, Button, Input, Text } = T
+      const pad = ' '.repeat(drawn.laid.column.left)
 
       return (
         <Box flexDirection="column">
           {drawn.tree}
+          {side.asking
+            ? <Input key={ASK_FIELD} label={`${pad}ask › `} placeholder={side.asking.section ? `about ${side.asking.section}` : 'about what you see'} submitLabel="ask" autoFocus onSubmit={text => void ask($, text)} />
+            : null}
           <Text> </Text>
           <Box display="none">
             {HOTKEYS.map(k => <Button key={hotkey(k)} label={k} hotkey={k} onPress={press => pressKey($, k, press)} />)}
@@ -535,10 +637,12 @@ export const register: Register = (on, options) => {
     // Other surfaces draw with their own type and scroll the tree themselves:
     // the same column, drawn by the surface's Markdown.
     const { Box, Button, Markdown, Text } = E
-    const surfaces = surfacesFor(turn, isLatest ? snap.tasks : [], historical, busy)
+    // a surface with no text field asks nothing
+    const Input = 'Input' in E ? E.Input : null
+    const surfaces = surfacesFor(turn, isLatest ? snap.tasks : [], historical, busy, asks)
     const active = Math.min(v.surface, surfaces.length - 1)
-    laid = { ...laid, maxScroll: 0, bodyRows: 10, surfaces, active }
     const shown = surfaces[active]!
+    laid = { ...laid, maxScroll: 0, bodyRows: 10, surfaces, active, seen: { surface: shown.label, section: null, passage: shown.raw } }
     const body = shown.raw !== '' ? shown.raw : '_The reply appears here as Claude writes it._'
     const position = snap.turns.length === 0 ? 'no turns yet'
       : `turn ${cursor + 1} of ${snap.turns.length}${v.frozen ? ' · frozen' : isFollowing(snap, v) ? ' · live' : ''}`
@@ -556,7 +660,9 @@ export const register: Register = (on, options) => {
           <Button key="later" label="later" plain dimColor onPress={press => pressKey($, 'l', press)} />
           <Button key="freeze" label={v.frozen ? 'unfreeze' : 'freeze'} plain dimColor onPress={press => pressKey($, 'f', press)} />
           <Button key="copy" label="copy" plain dimColor onPress={press => pressKey($, 'y', press)} />
+          {asks.some(a => a.answer !== null || a.failed) ? <Button key="send" label="send to session" plain dimColor onPress={press => pressKey($, 's', press)} /> : null}
         </Box>
+        {Input ? <Input key={ASK_FIELD} placeholder="ask about this turn, beside the session" submitLabel="ask" onSubmit={(text: string) => void askHere($, text)} /> : null}
       </Box>
     )
   })

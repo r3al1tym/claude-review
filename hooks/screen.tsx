@@ -7,7 +7,8 @@
 
 import type { ElementTable } from 'claude-code'
 
-import type { ReviewTask, ReviewTurn, ReviewView } from '../types'
+import type { ReviewAsk, ReviewTask, ReviewTurn, ReviewView } from '../types'
+import { asideMarkdown } from './aside'
 import { INK, layout } from './markdown'
 import type { Line } from './markdown'
 import { encode, hex, lampSpans, paintEdge, paintLamp, paintPage, rgb } from './paint'
@@ -48,6 +49,10 @@ export type ScreenInput = {
   deep: boolean
   // what the session waits on the person for
   waiting: 'plan' | 'question' | null
+  // the side questions about this turn, and whether one is being typed (the
+  // field takes the key row's place)
+  asks: ReviewAsk[]
+  asking: boolean
 }
 
 export type State = { word: string; style: Style }
@@ -108,10 +113,24 @@ function replyLines(turn: ReviewTurn, width: number): Line[] {
   return out
 }
 
+// The side questions about a turn and their answers, each question set as a
+// prompt leads its page, the section it was asked in quiet above it.
+function asideLines(asks: readonly ReviewAsk[], width: number): Line[] {
+  const out: Line[] = []
+  for (const a of asks) {
+    if (out.length > 0) out.push(blank(), blank())
+    if (a.anchor.section) out.push(textLine([{ text: clip(oneline(a.anchor.section), width), style: { color: INK.quiet, italic: true } }]))
+    out.push(...promptRows(a.question, width, INK.question).map(textLine), blank())
+    if (a.answer !== null) out.push(...layout(a.answer, width))
+    else out.push(...wrap([{ text: a.failed ? `No answer: ${a.failed}.` : 'Answering beside the session…', style: { color: INK.link, italic: true } }], width).map(textLine))
+  }
+  return out
+}
+
 // Ordered surfaces for whatever this turn produced, as the CLI builds them:
 // what Claude is blocked on leads (a plan awaiting approval, a question),
 // then the response, a plan already approved, the tasks.
-export function surfacesFor(turn: ReviewTurn, tasks: readonly ReviewTask[], historical: boolean, working: boolean): Surface[] {
+export function surfacesFor(turn: ReviewTurn, tasks: readonly ReviewTask[], historical: boolean, working: boolean, asks: readonly ReviewAsk[] = []): Surface[] {
   const md = (label: string, src: string): Surface => ({ label, lines: width => layout(src, width), raw: src })
   const out: Surface[] = []
   if (turn.plan && turn.planWaiting) out.push(md('plan', turn.plan))
@@ -121,6 +140,8 @@ export function surfacesFor(turn: ReviewTurn, tasks: readonly ReviewTask[], hist
   if (tasks.length > 0) {
     out.push({ label: 'tasks', lines: width => taskLines(tasks, width), raw: tasks.map(t => `[${t.status}] ${t.content}`).join('\n') })
   }
+  // the aside is always last, so a view sent to it needs no index
+  if (asks.length > 0) out.push({ label: 'aside', lines: width => asideLines(asks, width), raw: asideMarkdown(asks) })
   if (out.length > 0) return out
   if (historical) return [note('This turn ended without a reply.')]
   return [note('The reply appears here as Claude writes it.')]
@@ -130,14 +151,14 @@ export function surfacesFor(turn: ReviewTurn, tasks: readonly ReviewTask[], hist
 
 const HELP_INTRO = ' shows this session\'s latest reply, rendered for reading, beside the conversation. '
   + 'It follows the live turn until you freeze it; stepping back to an earlier turn freezes it too. '
-  + 'It only reads the conversation; nothing here writes to the session.'
+  + 'A side question (a) goes to a fork of the session; the main thread never sees it.'
 
 type HelpRow = [readonly string[], string]
 
 const HELP_GROUPS: readonly [string, readonly HelpRow[]][] = [
   ['MOVE', [[['h', 'l'], 'earlier / later turn'], [['↑ ↓', 'j k'], 'scroll a line'], [['pgup', 'pgdn'], 'scroll a page'], [['g'], 'top']]],
   ['HOLD', [[['f'], 'freeze / unfreeze'], [['r'], 'jump to the latest reply']]],
-  ['SURFACES', [[['t'], 'next surface'], [['y'], 'copy this surface']]],
+  ['SURFACES', [[['t'], 'next surface'], [['y'], 'copy this surface'], [['a'], 'ask about what you see'], [['s'], 'send that question to the session']]],
   ['PANE', [[['ctrl+x ⇥'], 'give the pane the keys'], [['esc'], 'hand them back'], [['q'], 'close the pane'], [['m'], 'close this guide']]],
 ]
 
@@ -282,15 +303,18 @@ function keyRow(s: ScreenInput, col: Column, surfaces: readonly Surface[], activ
   const left: Span[] = [{ text: state.word.padEnd(7), style: state.style }]
   if (s.behind) left.push({ text: '   ' }, { text: 'new reply', style: { color: INK.lamp } })
 
-  const right: Span[] = (() => {
+  // the ask cue is the first to give way: the guide lists it too
+  const rightOf = (withAsk: boolean): Span[] => {
     if (s.view.help) return [{ text: '↑↓ scroll · m close', style: meta }]
     if (s.view.flash) return [{ text: `✓ ${s.view.flash}`, style: { color: INK.bright } }]
     if (!s.isFocused) return [{ text: 'ctrl+x ⇥ focus', style: meta }]
     // off the latest reply (an earlier turn, or a newer reply behind a hold), the cue is the way back
     const hold = s.historical || s.behind ? 'r latest' : s.view.frozen ? 'f unfreeze' : 'f freeze'
-    const cues = [hold, ...(s.turnCount > 1 ? ['h l turns'] : []), 'm keys']
+    const onAside = surfaces[active]?.label === 'aside' && s.asks.some(a => a.answer !== null || a.failed)
+    const ask = withAsk ? [onAside ? 's send' : 'a ask'] : []
+    const cues = [hold, ...(s.turnCount > 1 ? ['h l turns'] : []), ...ask, 'm keys']
     return [{ text: cues.join(' · '), style: meta }]
-  })()
+  }
 
   // surface tabs, only when there are several; they give way before the cues
   const tabs = (mode: 'full' | 'active' | 'none'): Span[] => {
@@ -304,8 +328,10 @@ function keyRow(s: ScreenInput, col: Column, surfaces: readonly Surface[], activ
   }
 
   let tab: Span[] = []
-  for (const mode of ['full', 'active', 'none'] as const) {
+  let right: Span[] = []
+  for (const [mode, withAsk] of [['full', true], ['full', false], ['active', false], ['none', false]] as const) {
     tab = tabs(mode)
+    right = rightOf(withAsk)
     if (spanCells(left) + spanCells(tab) + spanCells(right) + 1 <= col.measure) break
   }
   const pad = Math.max(1, col.measure - spanCells(left) - spanCells(tab) - spanCells(right))
@@ -331,6 +357,8 @@ export type Laid = {
   column: Column
   // the body as cells, what a settle starts from
   page: Page
+  // what is in view, for a side question: the section and the rows' text
+  seen: { surface: string; section: string | null; passage: string }
 }
 
 // `paint` may take over the body: given the page as cells, it returns the
@@ -343,7 +371,7 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
   const bodyH = Math.max(1, s.rows - 4)
 
   const state = stateOf(s)
-  const surfaces = surfacesFor(s.turn, s.tasks, s.historical, s.working)
+  const surfaces = surfacesFor(s.turn, s.tasks, s.historical, s.working, s.asks)
   const active = Math.min(s.view.surface, surfaces.length - 1)
   const surface = surfaces[active]!
 
@@ -376,6 +404,13 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
   const page = { ...paintPage([textLine(head), ...window], col, W, bodyH + 1), edge: W - bodyW }
   if (marks) for (let y = 0; y < bodyH; y++) page.cells.set(marks.subarray(y * 6, y * 6 + 6), ((y + 1) * W + bodyW) * 3)
   const painted = paint?.(page) ?? null
+
+  const section = (() => {
+    const above = lines.slice(0, scroll + 1).findLast(l => l.kind === 'text' && l.head !== undefined)
+    return above?.kind === 'text' && above.head ? oneline(above.head) : null
+  })()
+  const passage = window.map(l => l.spans.map(sp => sp.text).join('').trimEnd()).join('\n').replace(/\n{3,}/g, '\n\n').trim()
+  const seen = { surface: s.view.help ? 'guide' : surface.label, section, passage }
 
   const styled = (sp: Span): JSX.Element => {
     const st = sp.style ?? {}
@@ -454,9 +489,9 @@ export function screen(E: ElementTable<'terminal'>, s: ScreenInput, paint?: (pag
             </Box>
           )}
       <Text> </Text>
-      {row(keyRow(s, col, surfaces, active, state), 0)}
+      {s.asking ? null : row(keyRow(s, col, surfaces, active, state), 0)}
     </Box>
   )
 
-  return { tree, laid: { maxScroll, bodyRows: bodyH, surfaces, active, column: col, page } }
+  return { tree, laid: { maxScroll, bodyRows: bodyH, surfaces, active, column: col, page, seen } }
 }
