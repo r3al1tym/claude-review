@@ -1108,3 +1108,26 @@ test('a fork with no answer says why, and an empty question closes the field', a
   expect(await ui.find({ type: 'Text', text: /No answer: api-error 529\./ })).toBeDefined()
   await ui.unmount()
 })
+
+test('Esc closes the field: the pane drawn without the keyboard drops it, and taking the keys back finds the key row', async ($, on) => {
+  fakePanes(on)
+  const { clock } = light(on)
+  on('session.messages', () => ({ value: SESSION }))
+  const { forks } = sides(on, { isAnswered: true, text: 'unused' })
+  await $.command.run(TOGGLE)
+
+  const ui = await mountTerminal($)
+  await ui.press({ key: 'key-a' })
+  expect(await ui.find({ key: 'ask' })).toBeDefined()
+
+  await ui.redraw({ ...props(), isFocused: false }) // Esc
+  expect(await ui.find({ type: 'Text', text: /ctrl\+x ⇥ focus/ })).toBeDefined()
+  expect(await ui.find({ key: 'ask' })).toBeUndefined()
+  await clock.advance(1)
+
+  await ui.redraw(props()) // ctrl+x ⇥
+  expect(await ui.find({ key: 'ask' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /m keys/ })).toBeDefined()
+  expect(forks.length).toBe(0)
+  await ui.unmount()
+})

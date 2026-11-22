@@ -7,7 +7,7 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
-- **Side questions.** `a` opens a field in the key row about what is in view: the turn, the section under the lamp and the rows on screen. Enter sends the question to a fork of the session (`$.model.fork`), which answers from the conversation with no tools while the main turn keeps working; the main thread never sees it. The answer lands in a new **aside** surface for that turn, each question set above its answer, and a follow-up carries the earlier ones. Asking freezes the view, so the page you asked about stays put. `s` sends the last side question to the session as your prompt, with what it was about, when the answer needs a tool. The fork's prompt quotes what you see, so it answers about an old turn after a compaction too.
+- **Side questions.** `a` opens a field in the key row about what is in view: the turn, the section under the lamp and the rows on screen. Enter sends the question to a fork of the session (`$.model.fork`), which answers from the conversation with no tools while the main turn keeps working; the main thread never sees it. The answer lands in a new **aside** surface for that turn, each question set above its answer, and a follow-up carries the earlier ones. Asking freezes the view, so the page you asked about stays put. Esc closes the field and hands the keys back. `s` sends the last side question to the session as your prompt, with what it was about, when the answer needs a tool. The fork's prompt quotes what you see, so it answers about an old turn after a compaction too.
 
 ## [1.2.0] — 2026-11-13
 

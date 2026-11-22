@@ -539,7 +539,7 @@ export const register: Register = (on, options) => {
   // the hotkeys ride on Buttons drawn hidden; the focus ring never lands on one
   on('ui.focus', { requestId: PANE }, async ($, e, next) => {
     if (e.element?.startsWith('key-')) return { deny: 'a hotkey, not a control' }
-    // Esc, or the ring moving off the field, closes it
+    // the ring moving off the field closes it
     if (e.element !== ASK_FIELD) await update($, aside, a => (a.asking ? { ...a, asking: null } : a))
     return next(e)
   })
@@ -551,7 +551,14 @@ export const register: Register = (on, options) => {
     const busy = (await read($, working)).length > 0
     const { turn, cursor, historical, prompt, pending } = display(snap, v, busy)
     const isLatest = !historical
-    const side = await read($, aside)
+    // Esc hands the keys back without moving the ring, so no ui.focus fires:
+    // a terminal pane drawn without the keyboard draws no field and closes it
+    // just after, since drawing writes nothing
+    let side = await read($, aside)
+    if (side.asking && e.surface === 'terminal' && !e.props.isFocused) {
+      side = { ...side, asking: null }
+      $.clock.after(0, () => void update($, aside, a => (a.asking ? { ...a, asking: null } : a)))
+    }
     const asks = asksFor(side.asks, cursor, turn)
     const behind = !isFollowing(snap, v) && hasReply(snap) && replySig(snap) !== v.seen
 
