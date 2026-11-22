@@ -233,14 +233,15 @@ async function open($: EngineInterface): Promise<boolean> {
 const clampScroll = (n: number): number => Math.max(0, Math.min(n, laid.maxScroll))
 
 // Every key closes a flash; with the guide up, any key but a scroll closes it.
-async function key($: EngineInterface, act: (snap: ReviewSnapshot, v: ReviewView) => ReviewView, scrolls = false): Promise<void> {
+async function key($: EngineInterface, act: (snap: ReviewSnapshot, v: ReviewView, busy: boolean) => ReviewView, scrolls = false): Promise<void> {
   const snap = await read($, snapshot)
+  const busy = (await read($, working)).length > 0
   // a key reaches the pane only once Esc has left the field, which closes it
   if (!scrolls) await update($, aside, a => (a.asking ? { ...a, asking: null } : a))
   await update($, view, v => {
     const base = { ...v, flash: null }
     if (base.help && !scrolls) return { ...base, help: false, scroll: 0 }
-    return act(snap, base)
+    return act(snap, base, busy)
   })
 }
 
@@ -263,8 +264,10 @@ const later = (snap: ReviewSnapshot, v: ReviewView): ReviewView => {
   return cursor + 1 === latest(snap) ? catchUp(snap, v) : show(snap, v, cursor + 1)
 }
 
-const freeze = (snap: ReviewSnapshot, v: ReviewView): ReviewView => {
-  if (!v.frozen) return { ...v, frozen: true, held: onScreen(snap, v).turn }
+// Freezing holds the turn the page shows, which while a new turn is still
+// blank is the last answer, kept on the page.
+const freeze = (snap: ReviewSnapshot, v: ReviewView, busy: boolean): ReviewView => {
+  if (!v.frozen) return { ...v, frozen: true, held: display(snap, v, busy).turn }
   // unfreezing, on any turn, resumes the live one
   return catchUp(snap, { ...v, frozen: false, held: null })
 }

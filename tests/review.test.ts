@@ -184,6 +184,30 @@ test('a frozen view holds while a reply lands, flags it, and catches up on unfre
   await ui.unmount()
 })
 
+test('f while a new turn is still blank holds the last answer on the page', async ($, on) => {
+  fakePanes(on)
+  light(on)
+  let messages = [...SESSION, prompt('third ask')]
+  on('session.messages', () => ({ value: messages }))
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  await $.command.run(TOGGLE)
+  await $.turn.start({ text: 'third ask', turnId: 'main' })
+
+  const ui = await mountTerminal($)
+  expect(await ui.find({ type: 'Text', text: 'Second answer, the latest.' })).toBeDefined()
+  await ui.press({ key: 'key-f' })
+  expect(await ui.find({ type: 'Text', text: 'Second answer, the latest.' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^frozen/ })).toBeDefined()
+
+  // the reply lands behind the hold
+  messages = [...messages, reply('Third answer.')]
+  await $.turn.complete(turnEnd)
+  expect(await ui.find({ type: 'Text', text: 'Second answer, the latest.' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /new reply/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('t walks the surfaces and m opens the guide, which any other key closes', async ($, on) => {
   fakePanes(on)
   light(on)
